@@ -1,0 +1,93 @@
+# Implementation Plan
+
+- [ ] 1. Clean up existing template and create new project structure
+  - [ ] 1.1 Remove existing template files (src/, prisma/, TypeScript config)
+    - Delete src/ directory and all contents
+    - Delete prisma/ directory and all contents
+    - Delete tsconfig.json, .eslintrc.json, .prettierrc
+    - Delete Docker-related files (Dockerfile, docker-compose.yml, .dockerignore)
+    - Delete template documentation (TEMPLATE_USAGE.md, DATABASE_SETUP.md, CONTRIBUTING.md)
+    - Delete shell scripts (setup.sh, setup-db.sh, start-db.sh, reset-template.sh, render.yaml)
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
+  - [ ] 1.2 Create new directory structure
+    - Create db/ directory
+    - Create commands/ directory (empty for Day 2+)
+    - Create handlers/ directory (empty for Day 2+)
+    - Create utils/ directory (empty for Day 2+)
+    - Create uploads/ directory with pdf/, slides/, books/, exams/ subdirectories
+    - _Requirements: 1.2, 1.3, 1.4, 1.5_
+
+- [ ] 2. Configure package.json and install dependencies
+  - [ ] 2.1 Update package.json with new project configuration
+    - Set name to "humsj-telegram-bot"
+    - Set main to "bot.js"
+    - Add "dev" script: "nodemon bot.js"
+    - Add "start" script: "node bot.js"
+    - Clear existing dependencies
+    - _Requirements: 2.6_
+  - [ ] 2.2 Add production dependencies
+    - Add telegraf for Telegram bot framework
+    - Add mongoose for MongoDB ODM
+    - Add dotenv for environment variables
+    - Add axios for HTTP requests
+    - _Requirements: 2.1, 2.2, 2.3, 2.4_
+  - [ ] 2.3 Add development dependencies
+    - Add nodemon for auto-restart during development
+    - _Requirements: 2.5_
+
+- [ ] 3. Set up environment configuration
+  - [ ] 3.1 Create .env file with placeholders
+    - Add BOT_TOKEN= placeholder with comment
+    - Add MONGO_URI= placeholder with comment
+    - _Requirements: 3.1, 3.2_
+  - [ ] 3.2 Create .env.example template
+    - Mirror .env structure for documentation
+    - Add descriptive comments for each variable
+    - _Requirements: 3.1, 3.2_
+  - [ ] 3.3 Update .gitignore for new project
+    - Ensure .env is ignored
+    - Add node_modules/
+    - Add uploads/ content ignoring
+    - _Requirements: 3.1, 3.2_
+
+- [ ] 4. Implement database connection module
+  - [ ] 4.1 Create db/mongoose.js connection module
+    - Import mongoose
+    - Create connectDB async function
+    - Use MONGO_URI from process.env
+    - Log success message on connection
+    - Log error and exit process on failure
+    - Export connectDB function
+    - Add comments explaining each section
+    - _Requirements: 5.1, 5.2, 5.3, 6.1, 6.3_
+
+- [ ] 5. Implement main bot entry point
+  - [ ] 5.1 Create bot.js with basic Telegraf setup
+    - Load dotenv at the very top
+    - Import Telegraf from telegraf
+    - Import connectDB from db/mongoose.js
+    - Create bot instance with BOT_TOKEN
+    - Add comments explaining each section
+    - _Requirements: 3.3, 4.1, 6.1, 6.3_
+  - [ ] 5.2 Implement /start command handler
+    - Register bot.start() handler
+    - Reply with welcome message: "Welcome to HUMSJ Academic Library Bot 📚\nYour academic resources in one place."
+    - Add comment explaining the command
+    - _Requirements: 4.2_
+  - [ ] 5.3 Implement error handling and startup
+    - Add bot.catch() for global error handling
+    - Create async main() function
+    - Call connectDB() before bot.launch()
+    - Log "Bot is running" on successful launch
+    - Handle graceful shutdown with SIGINT/SIGTERM
+    - _Requirements: 4.3, 4.4, 5.4_
+
+- [ ] 6. Final verification and cleanup
+  - [ ] 6.1 Update README.md with setup instructions
+    - Add project description
+    - Add installation steps
+    - Add environment setup instructions
+    - Add run commands (npm run dev)
+    - _Requirements: 6.1, 6.2_
+  - [ ] 6.2 Verify project runs correctly
+    - Ensure all tests pass, ask the user if questions arise.
