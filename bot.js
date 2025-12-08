@@ -4,8 +4,7 @@
  * Main Entry Point
  * ================================
  * 
- * Day 5: Complete resource browsing & PDF delivery
- * College → Department → Year → Semester → Course → Chapter → Resource
+ * Features: Menu, Navigation, Search, PDF Delivery
  */
 
 // Load environment variables first
@@ -18,6 +17,16 @@ const connectDB = require('./db/mongoose');
 // Import command handlers
 const handleTestCommand = require('./commands/test');
 
+// Import menu handlers
+const {
+  getMainMenuKeyboard,
+  showMainMenu,
+  handleBrowseColleges,
+  handleAllDepartments,
+  handleSearchButton,
+  handleHelp
+} = require('./handlers/menuHandler');
+
 // Import navigation handlers
 const { handleBrowse } = require('./handlers/collegeHandler');
 const { handleCollegeSelect } = require('./handlers/departmentHandler');
@@ -26,6 +35,16 @@ const { handleYearSelect } = require('./handlers/semesterHandler');
 const { handleSemesterSelect } = require('./handlers/courseHandler');
 const { handleCourseSelect } = require('./handlers/chapterHandler');
 const { handleChapterSelect, handleResourceSelect } = require('./handlers/resourceHandler');
+
+// Import search handlers
+const {
+  handleSearch,
+  handleSearchPagination,
+  handleSearchFilter,
+  handleSearchChapterSelect,
+  handleBackToSearch
+} = require('./handlers/searchHandler');
+
 const { clearSession } = require('./utils/sessionManager');
 
 // ================================
@@ -42,43 +61,93 @@ if (!process.env.BOT_TOKEN) {
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // ================================
+// Set Bot Commands Menu (appears in Telegram)
+// ================================
+bot.telegram.setMyCommands([
+  { command: 'start', description: '🏠 Start the bot' },
+  { command: 'browse', description: '📚 Browse colleges' },
+  { command: 'search', description: '🔍 Search resources' },
+  { command: 'help', description: '❓ Get help' }
+]);
+
+// ================================
 // Command Handlers
 // ================================
 
-// /start - Welcome message
+// /start - Welcome message with menu
 bot.start((ctx) => {
-  // Clear any existing session
   clearSession(ctx.chat.id);
   
   const welcomeMessage = `
-Welcome to HUMSJ Academic Library Bot 📚
+🎓 *Welcome to HUMSJ Academic Library Bot!*
 
-Your academic resources in one place.
+Your one-stop destination for academic resources.
 
-📂 *Available Commands:*
-/browse - Browse academic resources
-/start - Show this message
-/testdb - Test database connection
+📚 *What you can do:*
+• Browse colleges and departments
+• Search for courses and materials
+• Download PDFs, slides, and exams
 
-Use /browse to start exploring:
-• 📄 PDF Documents
-• 📊 Slides & Presentations
-• 📖 Books
-• 📝 Past Exams
+Use the menu buttons below or type commands:
+• \`/browse\` - Browse by college
+• \`/search <keyword>\` - Search resources
+• \`/help\` - Get help
   `;
   
-  ctx.reply(welcomeMessage.trim(), { parse_mode: 'Markdown' });
+  ctx.reply(welcomeMessage.trim(), {
+    parse_mode: 'Markdown',
+    ...getMainMenuKeyboard()
+  });
+  
   console.log(`👤 User started bot: ${ctx.from.username || ctx.from.id}`);
 });
 
 // /browse - Start academic navigation
 bot.command('browse', handleBrowse);
 
+// /search - Global search
+bot.command('search', handleSearch);
+
+// /help - Help message
+bot.command('help', handleHelp);
+
 // /testdb - Test database connection
 bot.command('testdb', handleTestCommand);
 
+// /menu - Show main menu
+bot.command('menu', showMainMenu);
+
 // ================================
-// Callback Query Handlers (Navigation)
+// Keyboard Button Handlers (Text)
+// ================================
+
+// Handle "📚 Browse Colleges" button
+bot.hears('📚 Browse Colleges', handleBrowseColleges);
+
+// Handle "🔍 Search" button
+bot.hears('🔍 Search', handleSearchButton);
+
+// Handle "📋 All Departments" button
+bot.hears('📋 All Departments', handleAllDepartments);
+
+// Handle "❓ Help" button
+bot.hears('❓ Help', handleHelp);
+
+// ================================
+// Search Callback Handlers
+// ================================
+
+// Search pagination
+bot.action(/^search_page_/, handleSearchPagination);
+
+// Search filter
+bot.action(/^search_filter_/, handleSearchFilter);
+
+// Back to search results
+bot.action('back_search', handleBackToSearch);
+
+// ================================
+// Navigation Callback Handlers
 // ================================
 
 // College selection → Show departments
@@ -96,14 +165,36 @@ bot.action(/^semester_(\d+)$/, handleSemesterSelect);
 // Course selection → Show chapters
 bot.action(/^course_(.+)$/, handleCourseSelect);
 
-// Chapter selection → Show resources
-bot.action(/^chapter_(.+)$/, handleChapterSelect);
+// Chapter selection (with courseId from search)
+bot.action(/^chapter_.+_.+$/, handleSearchChapterSelect);
+
+// Chapter selection (simple)
+bot.action(/^chapter_[^_]+$/, handleChapterSelect);
 
 // Resource selection → Deliver file
 bot.action(/^resource_(.+)$/, handleResourceSelect);
 
 // Back to colleges
 bot.action('back_colleges', handleBrowse);
+
+// ================================
+// Text Message Handler
+// ================================
+bot.on('text', (ctx) => {
+  const text = ctx.message.text;
+  
+  // Ignore commands and menu buttons
+  if (text.startsWith('/')) return;
+  if (['📚 Browse Colleges', '🔍 Search', '📋 All Departments', '❓ Help'].includes(text)) return;
+  
+  // Suggest search for other text
+  if (text.length >= 3) {
+    ctx.reply(
+      `💡 Did you mean to search?\n\nType: \`/search ${text}\``,
+      { parse_mode: 'Markdown' }
+    );
+  }
+});
 
 // ================================
 // Error Handling
@@ -118,24 +209,20 @@ bot.catch((err, ctx) => {
 // ================================
 async function startBot() {
   try {
-    // Step 1: Connect to MongoDB first
     console.log('🔄 Connecting to MongoDB...');
     await connectDB();
     
-    // Step 2: Launch the bot
     console.log('🔄 Launching Telegram bot...');
     
     bot.launch({
       dropPendingUpdates: true
     }).then(() => {
-      console.log('🟢 HUMSJ Library Bot is running and database connected');
-      console.log('📚 Ready to serve academic resources');
-      console.log('🔗 Navigation: /browse to start');
+      console.log('🟢 HUMSJ Library Bot is running');
+      console.log('📚 Menu: Browse Colleges | Search | All Departments | Help');
     }).catch((err) => {
       console.error('❌ Bot launch error:', err.message);
     });
     
-    // Don't await - let it run in background
     console.log('🟢 Bot initialization complete');
     
   } catch (error) {

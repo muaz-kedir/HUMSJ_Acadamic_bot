@@ -3,19 +3,22 @@
  * Session Manager
  * ================================
  * 
- * Stores user navigation state in memory.
- * Tracks user selections through the browse flow:
- * College → Department → Year → Semester → Course → Chapter → Resource
+ * Stores user navigation and search state in memory.
  * 
- * Used by handlers to maintain context between selections.
+ * Navigation: College → Department → Year → Semester → Course → Chapter → Resource
+ * Search: Keyword, page, filter
  */
 
 // In-memory session storage
-// Key: chatId, Value: user's current selections
 const userSession = {};
+const searchSession = {};
+
+// ================================
+// Navigation Session Functions
+// ================================
 
 /**
- * Get or create session for a user
+ * Get or create navigation session for a user
  * @param {number|string} chatId - Telegram chat ID
  * @returns {Object} User session object
  */
@@ -39,7 +42,7 @@ function getSession(chatId) {
 }
 
 /**
- * Update session with new values
+ * Update navigation session with new values
  * @param {number|string} chatId - Telegram chat ID
  * @param {Object} updates - Key-value pairs to update
  */
@@ -49,7 +52,7 @@ function updateSession(chatId, updates) {
 }
 
 /**
- * Clear session for a user
+ * Clear navigation session for a user
  * @param {number|string} chatId - Telegram chat ID
  */
 function clearSession(chatId) {
@@ -75,10 +78,52 @@ function getNavigationPath(chatId) {
   return parts.join(' → ');
 }
 
+// ================================
+// Search Session Functions
+// ================================
+
+/**
+ * Get search session for a user
+ * @param {number|string} chatId - Telegram chat ID
+ * @returns {Object|null} Search session or null
+ */
+function getSearchSession(chatId) {
+  return searchSession[chatId] || null;
+}
+
+/**
+ * Update search session
+ * @param {number|string} chatId - Telegram chat ID
+ * @param {Object} data - Search data (keyword, page, filter)
+ */
+function updateSearchSession(chatId, data) {
+  searchSession[chatId] = {
+    keyword: data.keyword || '',
+    page: data.page || 0,
+    filter: data.filter || 'all',
+    timestamp: Date.now()
+  };
+}
+
+/**
+ * Clear search session
+ * @param {number|string} chatId - Telegram chat ID
+ */
+function clearSearchSession(chatId) {
+  delete searchSession[chatId];
+}
+
 module.exports = {
+  // Navigation
   userSession,
   getSession,
   updateSession,
   clearSession,
-  getNavigationPath
+  getNavigationPath,
+  
+  // Search
+  searchSession,
+  getSearchSession,
+  updateSearchSession,
+  clearSearchSession
 };
