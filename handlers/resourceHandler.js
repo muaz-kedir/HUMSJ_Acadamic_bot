@@ -1,11 +1,11 @@
 /**
  * ================================
- * Resource Handler
+ * Resource Handler (Day 7 Enhanced)
  * ================================
  * 
- * Triggered when user selects a chapter.
- * Shows available resources (PDFs, slides, etc.) for that chapter.
- * Handles file delivery to user.
+ * Handles chapter selection and resource file delivery.
+ * Supports both local files and URL-based files.
+ * Includes improved navigation and error handling.
  */
 
 const { Markup } = require('telegraf');
@@ -13,6 +13,15 @@ const path = require('path');
 const fs = require('fs');
 const Resource = require('../db/schemas/Resource');
 const { updateSession, getSession, getNavigationPath } = require('../utils/sessionManager');
+const { recordHistory } = require('./historyHandler');
+
+// Type icons for display
+const TYPE_ICONS = {
+  pdf: '📄',
+  slide: '📊',
+  book: '📖',
+  exam: '📝'
+};
 
 /**
  * Handle chapter selection - Show resources
@@ -20,7 +29,6 @@ const { updateSession, getSession, getNavigationPath } = require('../utils/sessi
  */
 async function handleChapterSelect(ctx) {
   try {
-    // Acknowledge callback query
     await ctx.answerCbQuery();
     
     // Extract chapter from callback data
@@ -48,14 +56,19 @@ async function handleChapterSelect(ctx) {
     // Check if resources exist
     if (!resources || resources.length === 0) {
       const buttons = [
-        [Markup.button.callback('⬅️ Back to Chapters', `course_${session.courseId}`)]
+        [Markup.button.callback('🔔 Notify me when available', `notify_interest_chapter_${encodeURIComponent(chapter)}`)],
+        [Markup.button.callback('⬅️ Back to Chapters', `course_${session.courseId}`)],
+        [Markup.button.callback('⬅️ Back to Courses', `semester_${session.semester}`)],
+        [Markup.button.callback('🏠 Home', 'go_home')]
       ];
       
       return ctx.editMessageText(
         `📑 *${chapter}*\n` +
         `📍 ${navPath}\n\n` +
-        '📭 This chapter does not have any available resources.\n' +
-        'Please check back later.',
+        '📭 *No resources available yet*\n\n' +
+        'We are updating the library every day.\n' +
+        'Please check back soon!\n\n' +
+        '_Tap the button below to get notified when content is added._',
         {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard(buttons)
@@ -63,30 +76,29 @@ async function handleChapterSelect(ctx) {
       );
     }
     
-    // Build resource buttons with type icons
-    const typeIcons = {
-      pdf: '📄',
-      slide: '📊',
-      book: '📖',
-      exam: '📝'
-    };
-    
+    // Build resource buttons
     const buttons = resources.map(resource => [
       Markup.button.callback(
-        `${typeIcons[resource.type] || '📁'} ${resource.title}`,
+        `${TYPE_ICONS[resource.type] || '📁'} ${resource.title}`,
         `resource_${resource._id}`
       )
     ]);
     
-    // Add back button
-    buttons.push([Markup.button.callback('⬅️ Back to Chapters', `course_${session.courseId}`)]);
+    // Add navigation buttons
+    buttons.push([
+      Markup.button.callback('⬅️ Back to Chapters', `course_${session.courseId}`)
+    ]);
+    buttons.push([
+      Markup.button.callback('⬅️ Back to Courses', `semester_${session.semester}`)
+    ]);
     
     // Edit message with resources
     await ctx.editMessageText(
       `📑 *${chapter}*\n` +
+      `📘 Course: ${session.courseCode} – ${session.courseName}\n` +
       `📍 ${navPath}\n\n` +
-      `Found ${resources.length} resource(s):\n` +
-      'Select a resource to download:',
+      `📚 Found ${resources.length} resource(s):\n` +
+      'Select a file to download:',
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard(buttons)
@@ -97,8 +109,8 @@ async function handleChapterSelect(ctx) {
     
   } catch (error) {
     console.error('❌ Resource list error:', error.message);
-    await ctx.answerCbQuery('An error occurred');
-    await ctx.reply('❌ An error occurred. Please try /browse again.');
+    await ctx.answerCbQuery('⚠️ Something went wrong');
+    await ctx.reply('⚠️ Something went wrong. Please try again later.');
   }
 }
 
@@ -108,14 +120,13 @@ async function handleChapterSelect(ctx) {
  */
 async function handleResourceSelect(ctx) {
   try {
-    // Acknowledge callback query
     await ctx.answerCbQuery('📥 Preparing your file...');
     
-    // Extract resource ID from callback data
+    // Extract resource ID
     const resourceId = ctx.callbackQuery.data.replace('resource_', '');
     
-    // Fetch resource details
-    const resource = await Resource.findById(resourceId);
+    // Fetch resource details with course info
+    const resource = await Resource.findById(resourceId).populate('courseId');
     if (!resource) {
       return ctx.reply('❌ Resource not found. Please try again.');
     }
@@ -124,93 +135,107 @@ async function handleResourceSelect(ctx) {
     const session = getSession(ctx.chat.id);
     const navPath = getNavigationPath(ctx.chat.id);
     
-    // Type icons
-    const typeIcons = {
-      pdf: '📄',
-      slide: '📊',
-      book: '📖',
-      exam: '📝'
-    };
+    // Get course info
+    const courseName = resource.courseId?.name || session.courseName || 'Unknown Course';
+    const courseCode = resource.courseId?.courseCode || session.courseCode || '';
     
-    // Validate file type (only PDF supported for now)
-    const supportedTypes = ['pdf', 'book', 'exam', 'slide'];
-    if (!supportedTypes.includes(resource.type)) {
-      return ctx.reply(
-        `❌ This resource type (${resource.type}) is not supported yet.\n` +
-        'Only PDFs are supported at this time.'
-      );
-    }
+    // Prepare info message
+    const infoMessage = 
+      `${TYPE_ICONS[resource.type] || '📁'} *${resource.title}*\n\n` +
+      `📘 Course: ${courseCode} – ${courseName}\n` +
+      `📑 Chapter: ${resource.chapter}\n` +
+      `📍 ${navPath}`;
     
-    // Build file path
-    const filePath = path.join(process.cwd(), resource.filePath);
+    // Try to send the file
+    let fileSent = false;
     
-    // Check if file exists locally
-    if (fs.existsSync(filePath)) {
-      // Send local file
+    // Method 1: Check for URL-based file
+    if (resource.fileUrl && resource.fileUrl.startsWith('http')) {
       try {
-        // Send info message first
-        await ctx.reply(
-          `${typeIcons[resource.type] || '📁'} *${resource.title}*\n` +
-          `📑 ${resource.chapter}\n` +
-          `📍 ${navPath}\n\n` +
-          '📥 Sending your file...',
-          { parse_mode: 'Markdown' }
-        );
+        await ctx.reply(`${infoMessage}\n\n📥 Downloading file...`, { parse_mode: 'Markdown' });
         
-        // Send the document
+        // Send document from URL
         await ctx.replyWithDocument(
-          { source: filePath },
+          { url: resource.fileUrl, filename: `${resource.title}.pdf` },
           {
             caption: `📚 ${resource.title}\n📑 ${resource.chapter}`,
             ...Markup.inlineKeyboard([
-              [Markup.button.callback('⬅️ Back to Resources', `chapter_${encodeURIComponent(session.chapter)}`)]
+              [Markup.button.callback('⬅️ Back to Resources', `chapter_${encodeURIComponent(resource.chapter)}`)]
             ])
           }
         );
         
-        console.log(`📤 File sent: ${resource.title} to user ${ctx.from.username || ctx.from.id}`);
+        fileSent = true;
         
-      } catch (sendError) {
-        console.error('❌ File send error:', sendError.message);
-        await ctx.reply(
-          '❌ Failed to send this file.\n' +
-          'The file may be too large or corrupted.\n' +
-          'Please try again later.'
-        );
+        // Increment download count and record history
+        await Resource.findByIdAndUpdate(resourceId, { $inc: { downloads: 1 } });
+        await recordHistory(ctx.from.id.toString(), resourceId, 'download');
+        
+        console.log(`📤 URL file sent: ${resource.title} to ${ctx.from.username || ctx.from.id}`);
+        
+      } catch (urlError) {
+        console.error('❌ URL file error:', urlError.message);
       }
+    }
+    
+    // Method 2: Check for local file
+    if (!fileSent && resource.filePath) {
+      const filePath = path.join(process.cwd(), resource.filePath);
       
-    } else {
-      // File doesn't exist locally - show placeholder message
-      // In production, you would fetch from cloud storage
-      
+      if (fs.existsSync(filePath)) {
+        try {
+          await ctx.reply(`${infoMessage}\n\n📥 Sending file...`, { parse_mode: 'Markdown' });
+          
+          await ctx.replyWithDocument(
+            { source: filePath },
+            {
+              caption: `📚 ${resource.title}\n📑 ${resource.chapter}`,
+              ...Markup.inlineKeyboard([
+                [Markup.button.callback('⬅️ Back to Resources', `chapter_${encodeURIComponent(resource.chapter)}`)]
+              ])
+            }
+          );
+          
+          fileSent = true;
+          
+          // Increment download count
+          await Resource.findByIdAndUpdate(resourceId, { $inc: { downloads: 1 } });
+          
+          console.log(`📤 Local file sent: ${resource.title} to ${ctx.from.username || ctx.from.id}`);
+          
+        } catch (localError) {
+          console.error('❌ Local file error:', localError.message);
+        }
+      }
+    }
+    
+    // If no file was sent, show error
+    if (!fileSent) {
       const buttons = [
-        [Markup.button.callback('⬅️ Back to Resources', `chapter_${encodeURIComponent(session.chapter)}`)]
+        [Markup.button.callback('🔔 Notify when fixed', `notify_interest_resource_${resourceId}`)],
+        [Markup.button.callback('⬅️ Back to Resources', `chapter_${encodeURIComponent(resource.chapter)}`)],
+        [Markup.button.callback('⬅️ Back to Chapters', `course_${session.courseId}`)],
+        [Markup.button.callback('🏠 Home', 'go_home')]
       ];
       
       await ctx.editMessageText(
-        `${typeIcons[resource.type] || '📁'} *${resource.title}*\n` +
-        `📑 ${resource.chapter}\n` +
-        `📍 ${navPath}\n\n` +
-        `📂 *File Path:* \`${resource.filePath}\`\n\n` +
-        '⚠️ *Note:* This is a sample resource.\n' +
-        'In production, the actual PDF would be delivered here.\n\n' +
-        'To test with real files:\n' +
-        '1. Place PDF files in the uploads folder\n' +
-        '2. Update the filePath in the database',
+        `${infoMessage}\n\n` +
+        '❌ *This resource is temporarily unavailable*\n\n' +
+        'The library team has been notified.\n' +
+        '_Please try again later or choose another resource._',
         {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard(buttons)
         }
       );
-      
-      console.log(`⚠️ File not found: ${resource.filePath}`);
     }
     
   } catch (error) {
     console.error('❌ Resource delivery error:', error.message);
     await ctx.reply(
-      '❌ Failed to load this resource.\n' +
-      'Please try again later.'
+      '⚠️ Something went wrong. Please try again later.\n\n' +
+      '_If this problem persists, please contact admin._',
+      { parse_mode: 'Markdown' }
     );
   }
 }

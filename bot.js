@@ -1,42 +1,36 @@
 /**
  * ================================
  * HUMSJ Academic Library Bot
- * Main Entry Point
+ * Day 10: Production Ready
  * ================================
- * 
- * Features: Menu, Navigation, Search, PDF Delivery
  */
 
-// Load environment variables first
 require('dotenv').config();
 
-// Import dependencies
 const { Telegraf } = require('telegraf');
 const connectDB = require('./db/mongoose');
+const { log } = require('./utils/logger');
+const { startHealthServer } = require('./server');
+const { initScheduler } = require('./utils/scheduler');
+const { errorMiddleware, setupGlobalErrorHandlers } = require('./utils/errorHandler');
 
-// Import command handlers
+// Import handlers
 const handleTestCommand = require('./commands/test');
-
-// Import menu handlers
 const {
-  getMainMenuKeyboard,
-  showMainMenu,
+  showHomeMenu,
+  handleGoHome,
+  handleGoSearch,
   handleBrowseColleges,
   handleAllDepartments,
-  handleSearchButton,
   handleHelp
 } = require('./handlers/menuHandler');
-
-// Import navigation handlers
 const { handleBrowse } = require('./handlers/collegeHandler');
 const { handleCollegeSelect } = require('./handlers/departmentHandler');
 const { handleDepartmentSelect } = require('./handlers/yearHandler');
 const { handleYearSelect } = require('./handlers/semesterHandler');
 const { handleSemesterSelect } = require('./handlers/courseHandler');
 const { handleCourseSelect } = require('./handlers/chapterHandler');
-const { handleChapterSelect, handleResourceSelect } = require('./handlers/resourceHandler');
-
-// Import search handlers
+const { handleChapterSelect } = require('./handlers/resourceHandler');
 const {
   handleSearch,
   handleSearchPagination,
@@ -44,14 +38,39 @@ const {
   handleSearchChapterSelect,
   handleBackToSearch
 } = require('./handlers/searchHandler');
-
+const {
+  handleFavorites,
+  addToFavorites,
+  removeFromFavorites,
+  handleFavoritesPage
+} = require('./handlers/favoritesHandler');
+const {
+  handleHistory,
+  handleHistoryPage,
+  clearHistory
+} = require('./handlers/historyHandler');
+const {
+  showResourcePreview,
+  handlePdfPreview,
+  handlePdfDownload,
+  handleZipDownload,
+  handleContinueReading
+} = require('./handlers/pdfHandler');
+const { handleStats, handleStatsRefresh } = require('./handlers/statsHandler');
+const {
+  handleBroadcast,
+  handleAnalytics,
+  handleAnalyticsRefresh
+} = require('./handlers/adminHandler');
+const { handleNotifyInterest } = require('./handlers/interestHandler');
+const { rateLimitMiddleware } = require('./utils/rateLimiter');
 const { clearSession } = require('./utils/sessionManager');
 
 // ================================
 // Environment Validation
 // ================================
 if (!process.env.BOT_TOKEN) {
-  console.error('❌ Error: BOT_TOKEN is not defined in .env file');
+  log.error('BOT_TOKEN is not defined');
   process.exit(1);
 }
 
@@ -60,13 +79,21 @@ if (!process.env.BOT_TOKEN) {
 // ================================
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// ================================
-// Set Bot Commands Menu (appears in Telegram)
-// ================================
+// Setup global error handlers
+setupGlobalErrorHandlers(bot);
+
+// Apply middlewares
+bot.use(errorMiddleware(bot));
+bot.use(rateLimitMiddleware());
+
+// Set bot commands
 bot.telegram.setMyCommands([
-  { command: 'start', description: '🏠 Start the bot' },
+  { command: 'start', description: '🏠 Home menu' },
   { command: 'browse', description: '📚 Browse colleges' },
   { command: 'search', description: '🔍 Search resources' },
+  { command: 'favorites', description: '⭐ Your favorites' },
+  { command: 'history', description: '🕘 Browsing history' },
+  { command: 'stats', description: '📊 Statistics' },
   { command: 'help', description: '❓ Get help' }
 ]);
 
@@ -74,120 +101,125 @@ bot.telegram.setMyCommands([
 // Command Handlers
 // ================================
 
-// /start - Welcome message with menu
 bot.start((ctx) => {
   clearSession(ctx.chat.id);
-  
-  const welcomeMessage = `
-🎓 *Welcome to HUMSJ Academic Library Bot!*
-
-Your one-stop destination for academic resources.
-
-📚 *What you can do:*
-• Browse colleges and departments
-• Search for courses and materials
-• Download PDFs, slides, and exams
-
-Use the menu buttons below or type commands:
-• \`/browse\` - Browse by college
-• \`/search <keyword>\` - Search resources
-• \`/help\` - Get help
-  `;
-  
-  ctx.reply(welcomeMessage.trim(), {
-    parse_mode: 'Markdown',
-    ...getMainMenuKeyboard()
-  });
-  
-  console.log(`👤 User started bot: ${ctx.from.username || ctx.from.id}`);
+  showHomeMenu(ctx);
+  log.userAction(ctx.from.id, 'start', { username: ctx.from.username });
 });
 
-// /browse - Start academic navigation
 bot.command('browse', handleBrowse);
-
-// /search - Global search
 bot.command('search', handleSearch);
-
-// /help - Help message
+bot.command('favorites', handleFavorites);
+bot.command('history', handleHistory);
+bot.command('stats', handleStats);
 bot.command('help', handleHelp);
-
-// /testdb - Test database connection
 bot.command('testdb', handleTestCommand);
 
-// /menu - Show main menu
-bot.command('menu', showMainMenu);
+// Admin commands
+bot.command('broadcast', handleBroadcast);
+bot.command('analytics', handleAnalytics);
 
 // ================================
-// Keyboard Button Handlers (Text)
+// Keyboard Button Handlers
 // ================================
 
-// Handle "📚 Browse Colleges" button
-bot.hears('📚 Browse Colleges', handleBrowseColleges);
-
-// Handle "🔍 Search" button
-bot.hears('🔍 Search', handleSearchButton);
-
-// Handle "📋 All Departments" button
-bot.hears('📋 All Departments', handleAllDepartments);
-
-// Handle "❓ Help" button
+bot.hears('📚 Browse', handleBrowseColleges);
+bot.hears('🔍 Search', handleGoSearch);
+bot.hears('⭐ Favorites', handleFavorites);
+bot.hears('🕘 History', handleHistory);
 bot.hears('❓ Help', handleHelp);
 
 // ================================
-// Search Callback Handlers
+// Navigation Callbacks
 // ================================
 
-// Search pagination
+bot.action('go_home', handleGoHome);
+bot.action('go_search', handleGoSearch);
+bot.action('go_favorites', async (ctx) => { await ctx.answerCbQuery(); await handleFavorites(ctx); });
+bot.action('go_history', async (ctx) => { await ctx.answerCbQuery(); await handleHistory(ctx); });
+bot.action('browse_colleges', handleBrowseColleges);
+bot.action('show_all_depts', handleAllDepartments);
+bot.action('show_help', handleHelp);
+bot.action('noop', (ctx) => ctx.answerCbQuery());
+bot.action('start_over', (ctx) => { ctx.answerCbQuery(); clearSession(ctx.chat.id); showHomeMenu(ctx); });
+
+// ================================
+// Favorites Callbacks
+// ================================
+
+bot.action(/^fav_add_/, addToFavorites);
+bot.action(/^fav_remove_/, removeFromFavorites);
+bot.action(/^fav_page_/, handleFavoritesPage);
+
+// ================================
+// History Callbacks
+// ================================
+
+bot.action(/^hist_page_/, handleHistoryPage);
+bot.action('hist_clear', clearHistory);
+
+// ================================
+// PDF Callbacks
+// ================================
+
+bot.action(/^pdf_preview_/, handlePdfPreview);
+bot.action(/^pdf_download_/, handlePdfDownload);
+bot.action(/^pdf_zip_/, handleZipDownload);
+bot.action(/^pdf_continue_/, handleContinueReading);
+
+// ================================
+// Stats & Analytics Callbacks
+// ================================
+
+bot.action('stats_refresh', handleStatsRefresh);
+bot.action('analytics_refresh', handleAnalyticsRefresh);
+
+// ================================
+// Interest/Notification Callbacks
+// ================================
+
+bot.action(/^notify_interest_/, handleNotifyInterest);
+
+// ================================
+// Search Callbacks
+// ================================
+
 bot.action(/^search_page_/, handleSearchPagination);
-
-// Search filter
 bot.action(/^search_filter_/, handleSearchFilter);
-
-// Back to search results
 bot.action('back_search', handleBackToSearch);
 
 // ================================
-// Navigation Callback Handlers
+// Browse Navigation Callbacks
 // ================================
 
-// College selection → Show departments
 bot.action(/^college_(.+)$/, handleCollegeSelect);
-
-// Department selection → Show years
 bot.action(/^department_(.+)$/, handleDepartmentSelect);
-
-// Year selection → Show semesters
 bot.action(/^year_(\d+)$/, handleYearSelect);
-
-// Semester selection → Show courses
 bot.action(/^semester_(\d+)$/, handleSemesterSelect);
-
-// Course selection → Show chapters
 bot.action(/^course_(.+)$/, handleCourseSelect);
-
-// Chapter selection (with courseId from search)
 bot.action(/^chapter_.+_.+$/, handleSearchChapterSelect);
-
-// Chapter selection (simple)
 bot.action(/^chapter_[^_]+$/, handleChapterSelect);
 
-// Resource selection → Deliver file
-bot.action(/^resource_(.+)$/, handleResourceSelect);
+// Resource selection - show preview instead of direct download
+bot.action(/^resource_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const resourceId = ctx.callbackQuery.data.replace('resource_', '');
+  await showResourcePreview(ctx, resourceId);
+});
 
-// Back to colleges
 bot.action('back_colleges', handleBrowse);
 
 // ================================
 // Text Message Handler
 // ================================
+
 bot.on('text', (ctx) => {
   const text = ctx.message.text;
-  
-  // Ignore commands and menu buttons
   if (text.startsWith('/')) return;
-  if (['📚 Browse Colleges', '🔍 Search', '📋 All Departments', '❓ Help'].includes(text)) return;
   
-  // Suggest search for other text
+  const menuButtons = ['📚 Browse', '🔍 Search', '⭐ Favorites', '🕘 History', '❓ Help'];
+  if (menuButtons.includes(text)) return;
+  
   if (text.length >= 3) {
     ctx.reply(
       `💡 Did you mean to search?\n\nType: \`/search ${text}\``,
@@ -199,50 +231,59 @@ bot.on('text', (ctx) => {
 // ================================
 // Error Handling
 // ================================
+
 bot.catch((err, ctx) => {
-  console.error(`❌ Error for ${ctx.updateType}:`, err);
-  ctx.reply('❌ An error occurred. Please try again later.');
+  log.botError(err, { updateType: ctx.updateType, userId: ctx.from?.id });
+  ctx.reply('⚠️ Something went wrong. Please try again.').catch(() => {});
 });
 
 // ================================
-// Bot Launch Function
+// Bot Launch
 // ================================
+
 async function startBot() {
   try {
-    console.log('🔄 Connecting to MongoDB...');
+    log.info('Starting HUMSJ Academic Library Bot...');
+    
+    // Connect to database
+    log.info('Connecting to MongoDB...');
     await connectDB();
     
-    console.log('🔄 Launching Telegram bot...');
+    // Start health check server
+    if (process.env.NODE_ENV === 'production') {
+      startHealthServer();
+    }
     
-    bot.launch({
-      dropPendingUpdates: true
-    }).then(() => {
-      console.log('🟢 HUMSJ Library Bot is running');
-      console.log('📚 Menu: Browse Colleges | Search | All Departments | Help');
-    }).catch((err) => {
-      console.error('❌ Bot launch error:', err.message);
-    });
+    // Initialize scheduler for backups and cleanup
+    initScheduler();
     
-    console.log('🟢 Bot initialization complete');
+    // Launch bot
+    log.info('Launching Telegram bot...');
+    
+    await bot.launch({ dropPendingUpdates: true });
+    
+    log.info('🟢 HUMSJ Library Bot is running');
+    log.info('📚 Features: Browse, Search, Favorites, History, Stats, Analytics');
+    log.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     
   } catch (error) {
-    console.error('❌ Failed to start bot:', error);
+    log.error('Failed to start bot', { error: error.message });
     process.exit(1);
   }
 }
 
-// ================================
-// Graceful Shutdown
-// ================================
+// Graceful shutdown
 process.once('SIGINT', () => {
-  console.log('\n🛑 Shutting down gracefully...');
+  log.info('Received SIGINT, shutting down...');
   bot.stop('SIGINT');
 });
 
 process.once('SIGTERM', () => {
-  console.log('\n🛑 Shutting down gracefully...');
+  log.info('Received SIGTERM, shutting down...');
   bot.stop('SIGTERM');
 });
 
-// Start the bot
+// Export bot for external use
+module.exports = { bot };
+
 startBot();

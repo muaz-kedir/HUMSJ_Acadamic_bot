@@ -1,126 +1,174 @@
 # HUMSJ Academic Library Bot 📚
 
-A Telegram bot for accessing academic resources including PDFs, slides, books, and past exams.
+A Telegram bot for accessing academic resources at HUMSJ (Haramaya University Maddaa Jireenyaa Campus).
 
 ## Features
 
-- 📂 **Browse** - Navigate by College → Department → Year → Semester → Course
-- 🔍 **Search** - Find resources instantly with keywords
-- 📄 **PDF Delivery** - Get files directly in Telegram
-- 📊 **Multiple Resource Types** - PDFs, Slides, Books, Exams
+- 📚 Browse colleges, departments, and courses
+- 🔍 Search resources by keyword
+- ⭐ Save favorites for quick access
+- 🕘 View browsing history
+- 📄 PDF preview and download
+- 🗜️ ZIP download option
+- 📊 Usage statistics and analytics
+- 📢 Admin broadcast system
+- 🔔 Notification for new content
 
 ## Quick Start
 
+### Prerequisites
+
+- Node.js 18+ 
+- MongoDB (local or Atlas)
+- Telegram Bot Token (from @BotFather)
+
+### Installation
+
 ```bash
+# Clone the repository
+git clone https://github.com/yourusername/humsj-telegram-bot.git
+cd humsj-telegram-bot
+
+# Install dependencies
 npm install
+
+# Copy environment template
+cp .env.example .env
+
+# Edit .env with your credentials
+# BOT_TOKEN=your_bot_token
+# MONGO_URI=your_mongodb_uri
+# ADMIN_IDS=your_telegram_id
+
+# Seed the database
 npm run seed
+
+# Start the bot
 npm run dev
 ```
 
+## Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `BOT_TOKEN` | Telegram bot token from @BotFather | Yes |
+| `MONGO_URI` | MongoDB connection string | Yes |
+| `NODE_ENV` | Environment (development/production) | No |
+| `ADMIN_IDS` | Comma-separated admin Telegram IDs | No |
+| `PORT` | Health check server port | No |
+| `LOG_LEVEL` | Logging level (debug/info/warn/error) | No |
+
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `/start` | Welcome message |
-| `/browse` | Browse by college/department |
-| `/search <keyword>` | Search all resources |
-| `/testdb` | Test database connection |
+### User Commands
+- `/start` - Home menu
+- `/browse` - Browse colleges
+- `/search <keyword>` - Search resources
+- `/favorites` - View saved items
+- `/history` - View browsing history
+- `/stats` - View statistics
+- `/help` - Get help
 
-## Search Examples
-
-```
-/search calculus
-/search biology
-/search accounting
-/search psychology
-```
+### Admin Commands
+- `/broadcast <message>` - Send message to all users
+- `/analytics` - View detailed analytics
 
 ## Project Structure
 
 ```
 humsj-telegram-bot/
-├── bot.js                      # Main entry point
+├── bot.js              # Main entry point
+├── server.js           # Health check server
+├── package.json
+├── .env.example
 ├── db/
-│   ├── mongoose.js             # MongoDB connection
-│   └── schemas/                # Database models
-├── handlers/
-│   ├── collegeHandler.js       # College browsing
-│   ├── departmentHandler.js    # Department selection
-│   ├── yearHandler.js          # Year selection
-│   ├── semesterHandler.js      # Semester selection
-│   ├── courseHandler.js        # Course selection
-│   ├── chapterHandler.js       # Chapter selection
-│   ├── resourceHandler.js      # File delivery
-│   └── searchHandler.js        # Global search
-├── utils/
-│   └── sessionManager.js       # User state management
-├── scripts/
-│   └── seed.js                 # Database seeding
-└── uploads/                    # Resource files
+│   ├── mongoose.js     # Database connection
+│   └── schemas/        # MongoDB schemas
+├── handlers/           # Bot command handlers
+├── utils/              # Utility functions
+├── scripts/            # Maintenance scripts
+└── uploads/            # Resource files
+    ├── pdf/
+    ├── slides/
+    ├── books/
+    └── exams/
 ```
 
-## Navigation Flow
+## Deployment
 
-```
-/browse
-   ↓
-Colleges → Departments → Years → Semesters → Courses → Chapters → Resources → PDF
-```
+### Deploy to Render (Recommended - Free)
 
-## Search Flow
+1. Push code to GitHub
+2. Go to [render.com](https://render.com)
+3. Create new Web Service
+4. Connect your GitHub repo
+5. Configure:
+   - Build Command: `npm install`
+   - Start Command: `npm start`
+6. Add environment variables
+7. Deploy!
 
-```
-/search biology
-   ↓
-┌─────────────────────────────────┐
-│ 🔍 Search results for: "biology"│
-│                                 │
-│ [📋 All] [📘 Courses] [📄 Files]│
-│                                 │
-│ 📘 BIO101 – General Biology I   │
-│ 📘 BIO102 – General Biology II  │
-│ 📑 Chapter 1 (BIO101)           │
-│ 📄 Cell Structure.pdf           │
-│                                 │
-│ [⬅️ Previous] [Next ➡️]         │
-└─────────────────────────────────┘
-```
+### Environment Variables on Render
 
-## HUMSJ Colleges
+Add these in the Render dashboard:
+- `BOT_TOKEN`
+- `MONGO_URI` (use MongoDB Atlas for production)
+- `NODE_ENV=production`
+- `ADMIN_IDS`
 
-- **Behavioral Science** - Psychology, Education
-- **Agriculture College** - Plant Sciences, Animal Science
-- **Business and Economics** - Accounting, Economics, Management
-- **CNCS** - Mathematics, Physics, Chemistry, Biology
-- **Social Science** - Sociology, History, Geography
+## Maintenance
 
-## Environment Setup
-
-Create `.env` file:
-```env
-BOT_TOKEN=your_bot_token_here
-MONGO_URI=mongodb://localhost:27017/humsj-library
-NODE_ENV=development
+### Backup Database
+```bash
+npm run backup
 ```
 
-## NPM Scripts
+### Cleanup Temp Files
+```bash
+npm run cleanup
+```
 
-| Script | Description |
-|--------|-------------|
-| `npm start` | Production mode |
-| `npm run dev` | Development with auto-reload |
-| `npm run seed` | Seed database with sample data |
+### Health Check
+Access `http://your-server:3000/health` for status.
 
-## Development Progress
+## Admin Guide
 
-- [x] Day 1: Project setup
-- [x] Day 2: MongoDB connection
-- [x] Day 3: Database schemas
-- [x] Day 4: Navigation system
-- [x] Day 5: Resource delivery
-- [x] Day 6: Global search
-- [ ] Week 2: Admin panel, favorites
+### Getting Your Telegram ID
+1. Message @userinfobot on Telegram
+2. Copy the ID number
+3. Add to `ADMIN_IDS` in .env
+
+### Broadcasting Messages
+```
+/broadcast Your announcement message here
+```
+
+### Viewing Analytics
+```
+/analytics
+```
+
+## Troubleshooting
+
+### Bot not responding
+- Check BOT_TOKEN is correct
+- Ensure MongoDB is running
+- Check logs for errors
+
+### Database connection failed
+- Verify MONGO_URI format
+- Check network/firewall settings
+- For Atlas: whitelist your IP
+
+### Files not sending
+- Check file paths in database
+- Verify files exist in uploads/
+- Check file size (max 50MB for Telegram)
 
 ## License
 
-MIT
+MIT License
+
+## Support
+
+For issues or questions, contact the HUMSJ Library team.

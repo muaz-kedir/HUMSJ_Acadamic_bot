@@ -31,3 +31,6 @@ uploads/exams/*
 # Temporary files
 tmp/
 temp/
+
+# Backups
+backups/

@@ -5,6 +5,7 @@
  * 
  * Stores all academic files (PDFs, slides, books, exams).
  * Each resource belongs to one course.
+ * Supports both local files and URL-based files.
  */
 
 const mongoose = require('mongoose');
@@ -45,11 +46,30 @@ const resourceSchema = new mongoose.Schema({
     lowercase: true
   },
   
-  // File path in /uploads directory
+  // File path (local) OR file URL (remote)
   filePath: {
     type: String,
-    required: [true, 'File path is required'],
-    trim: true
+    trim: true,
+    default: ''
+  },
+  
+  // File URL for remote files (Google Drive, Dropbox, etc.)
+  fileUrl: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  
+  // File size in bytes (optional)
+  fileSize: {
+    type: Number,
+    default: 0
+  },
+  
+  // Download count
+  downloads: {
+    type: Number,
+    default: 0
   },
   
   // Auto-generated timestamp
@@ -60,7 +80,8 @@ const resourceSchema = new mongoose.Schema({
 });
 
 // Indexes for faster queries
+resourceSchema.index({ courseId: 1, chapter: 1 });
 resourceSchema.index({ courseId: 1, type: 1 });
-resourceSchema.index({ type: 1 });
+resourceSchema.index({ chapter: 1 });
 
 module.exports = mongoose.model('Resource', resourceSchema);

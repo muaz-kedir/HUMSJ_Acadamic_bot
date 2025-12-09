@@ -1,10 +1,10 @@
 /**
  * ================================
- * Menu Handler
+ * Menu Handler (Day 8 Enhanced)
  * ================================
  * 
- * Handles the main menu with keyboard buttons.
- * Provides quick access to all colleges and features.
+ * Unified home menu with all features.
+ * Common navigation buttons for all screens.
  */
 
 const { Markup } = require('telegraf');
@@ -12,69 +12,153 @@ const College = require('../db/schemas/College');
 const Department = require('../db/schemas/Department');
 
 /**
- * Get the main menu keyboard
- * @returns {Object} Telegram keyboard markup
+ * Get common navigation buttons
+ */
+function getCommonButtons() {
+  return [
+    [
+      Markup.button.callback('🏠 Home', 'go_home'),
+      Markup.button.callback('🔍 Search', 'go_search')
+    ],
+    [
+      Markup.button.callback('⭐ Favorites', 'go_favorites'),
+      Markup.button.callback('🕘 History', 'go_history')
+    ]
+  ];
+}
+
+/**
+ * Get the main menu keyboard (persistent)
  */
 function getMainMenuKeyboard() {
   return Markup.keyboard([
-    ['📚 Browse Colleges', '🔍 Search'],
-    ['📋 All Departments', '❓ Help']
+    ['📚 Browse', '🔍 Search'],
+    ['⭐ Favorites', '🕘 History'],
+    ['❓ Help']
   ]).resize();
 }
 
 /**
- * Handle main menu display
- * @param {Object} ctx - Telegraf context
+ * Show unified home menu
  */
-async function showMainMenu(ctx) {
-  await ctx.reply(
-    '📚 *HUMSJ Academic Library*\n\n' +
-    'Choose an option from the menu below:',
-    {
+async function showHomeMenu(ctx) {
+  const buttons = [
+    [Markup.button.callback('📚 Browse Colleges', 'browse_colleges')],
+    [Markup.button.callback('🔍 Search Resources', 'go_search')],
+    [
+      Markup.button.callback('⭐ Favorites', 'go_favorites'),
+      Markup.button.callback('🕘 History', 'go_history')
+    ],
+    [Markup.button.callback('📋 All Departments', 'show_all_depts')],
+    [Markup.button.callback('📊 Statistics', 'go_stats')],
+    [Markup.button.callback('❓ Help', 'show_help')]
+  ];
+  
+  const message = 
+    '🎓 *HUMSJ Academic Library Bot*\n\n' +
+    '📚 Your one-stop destination for academic resources.\n\n' +
+    '*Select an option:*';
+  
+  if (ctx.callbackQuery) {
+    await ctx.editMessageText(message, {
       parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(buttons)
+    });
+  } else {
+    await ctx.reply(message, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(buttons),
       ...getMainMenuKeyboard()
-    }
-  );
+    });
+  }
+}
+
+/**
+ * Handle go_home callback
+ */
+async function handleGoHome(ctx) {
+  try {
+    await ctx.answerCbQuery();
+    await showHomeMenu(ctx);
+  } catch (error) {
+    console.error('❌ Go home error:', error.message);
+  }
+}
+
+/**
+ * Handle go_search callback
+ */
+async function handleGoSearch(ctx) {
+  try {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+      '🔍 *Search Resources*\n\n' +
+      'Type `/search` followed by your keyword:\n\n' +
+      '*Examples:*\n' +
+      '• `/search calculus`\n' +
+      '• `/search biology`\n' +
+      '• `/search chapter 1`\n' +
+      '• `/search exam`',
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(getCommonButtons())
+      }
+    );
+  } catch (error) {
+    console.error('❌ Go search error:', error.message);
+  }
 }
 
 /**
  * Handle "Browse Colleges" button
- * @param {Object} ctx - Telegraf context
  */
 async function handleBrowseColleges(ctx) {
   try {
+    if (ctx.callbackQuery) await ctx.answerCbQuery();
+    
     const colleges = await College.find({}).sort({ name: 1 });
     
     if (!colleges || colleges.length === 0) {
       return ctx.reply('📭 No colleges found.');
     }
     
-    // Build inline keyboard
     const buttons = colleges.map(college => [
       Markup.button.callback(`🏛️ ${college.name}`, `college_${college._id}`)
     ]);
     
-    await ctx.reply(
-      '🏛️ *Select a College*\n\n' +
-      'Choose a college to browse departments:',
-      {
+    // Add common navigation
+    buttons.push([
+      Markup.button.callback('🏠 Home', 'go_home'),
+      Markup.button.callback('🔍 Search', 'go_search')
+    ]);
+    
+    const message = '🏛️ *Select a College*\n\nChoose a college to browse:';
+    
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(message, {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard(buttons)
-      }
-    );
+      });
+    } else {
+      await ctx.reply(message, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons)
+      });
+    }
     
   } catch (error) {
     console.error('❌ Browse colleges error:', error.message);
-    await ctx.reply('❌ An error occurred. Please try again.');
+    await ctx.reply('⚠️ Something went wrong. Please try again.');
   }
 }
 
 /**
- * Handle "All Departments" button - Show all colleges with their departments
- * @param {Object} ctx - Telegraf context
+ * Handle "All Departments" button
  */
 async function handleAllDepartments(ctx) {
   try {
+    if (ctx.callbackQuery) await ctx.answerCbQuery();
+    
     const colleges = await College.find({}).sort({ name: 1 });
     
     let message = '📋 *All Colleges & Departments*\n\n';
@@ -94,72 +178,83 @@ async function handleAllDepartments(ctx) {
       message += '\n';
     }
     
-    message += '_Use /browse to navigate or /search to find resources_';
-    
-    // Split message if too long
+    // Split if too long
     if (message.length > 4000) {
       const parts = splitMessage(message, 4000);
-      for (const part of parts) {
-        await ctx.reply(part, { parse_mode: 'Markdown' });
+      for (let i = 0; i < parts.length; i++) {
+        if (i === parts.length - 1) {
+          await ctx.reply(parts[i], {
+            parse_mode: 'Markdown',
+            ...Markup.inlineKeyboard(getCommonButtons())
+          });
+        } else {
+          await ctx.reply(parts[i], { parse_mode: 'Markdown' });
+        }
       }
     } else {
-      await ctx.reply(message, { parse_mode: 'Markdown' });
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(message, {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard(getCommonButtons())
+        });
+      } else {
+        await ctx.reply(message, {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard(getCommonButtons())
+        });
+      }
     }
     
   } catch (error) {
     console.error('❌ All departments error:', error.message);
-    await ctx.reply('❌ An error occurred. Please try again.');
+    await ctx.reply('⚠️ Something went wrong. Please try again.');
   }
 }
 
 /**
- * Handle "Search" button
- * @param {Object} ctx - Telegraf context
- */
-async function handleSearchButton(ctx) {
-  await ctx.reply(
-    '🔍 *Global Search*\n\n' +
-    'Type `/search` followed by your keyword:\n\n' +
-    '*Examples:*\n' +
-    '• `/search calculus`\n' +
-    '• `/search biology`\n' +
-    '• `/search accounting`\n' +
-    '• `/search psychology`',
-    { parse_mode: 'Markdown' }
-  );
-}
-
-/**
  * Handle "Help" button
- * @param {Object} ctx - Telegraf context
  */
 async function handleHelp(ctx) {
-  await ctx.reply(
-    '❓ *Help - HUMSJ Academic Library Bot*\n\n' +
-    '*Commands:*\n' +
-    '• `/start` - Restart the bot\n' +
-    '• `/browse` - Browse by college\n' +
-    '• `/search <keyword>` - Search resources\n\n' +
-    '*Menu Buttons:*\n' +
-    '• 📚 Browse Colleges - Navigate colleges\n' +
-    '• 🔍 Search - Search for resources\n' +
-    '• 📋 All Departments - View all departments\n' +
-    '• ❓ Help - Show this message\n\n' +
-    '*How to use:*\n' +
-    '1. Click "Browse Colleges" or use /browse\n' +
-    '2. Select a college → department → year → semester\n' +
-    '3. Choose a course and chapter\n' +
-    '4. Download your PDF!\n\n' +
-    '_Or use /search to find resources directly_',
-    { parse_mode: 'Markdown' }
-  );
+  try {
+    if (ctx.callbackQuery) await ctx.answerCbQuery();
+    
+    const message = 
+      '❓ *Help - HUMSJ Academic Library*\n\n' +
+      '*Commands:*\n' +
+      '• `/start` - Home menu\n' +
+      '• `/browse` - Browse colleges\n' +
+      '• `/search <keyword>` - Search resources\n' +
+      '• `/favorites` - Your saved items\n' +
+      '• `/history` - Browsing history\n\n' +
+      '*How to use:*\n' +
+      '1. Tap "📚 Browse" to navigate\n' +
+      '2. Select College → Department → Year → Semester\n' +
+      '3. Choose a course and chapter\n' +
+      '4. Download your PDF!\n\n' +
+      '*Tips:*\n' +
+      '• Use ⭐ to save favorites\n' +
+      '• Use 🔍 to search directly\n' +
+      '• Use 🕘 to see recent items';
+    
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(getCommonButtons())
+      });
+    } else {
+      await ctx.reply(message, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(getCommonButtons())
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Help error:', error.message);
+  }
 }
 
 /**
- * Split long message into parts
- * @param {string} message - Message to split
- * @param {number} maxLength - Maximum length per part
- * @returns {string[]} Array of message parts
+ * Split long message
  */
 function splitMessage(message, maxLength) {
   const parts = [];
@@ -175,18 +270,17 @@ function splitMessage(message, maxLength) {
     }
   }
   
-  if (current) {
-    parts.push(current);
-  }
-  
+  if (current) parts.push(current);
   return parts;
 }
 
 module.exports = {
+  getCommonButtons,
   getMainMenuKeyboard,
-  showMainMenu,
+  showHomeMenu,
+  handleGoHome,
+  handleGoSearch,
   handleBrowseColleges,
   handleAllDepartments,
-  handleSearchButton,
   handleHelp
 };
