@@ -1,23 +1,31 @@
 /**
  * ================================
- * Semester Handler
+ * Semester Handler (Day 11 Enhanced)
  * ================================
  * 
- * Triggered when user selects a year.
- * Shows semester options (Semester 1-2).
+ * Shows semester options when user selects a year.
+ * Clean UI with back navigation.
  */
 
 const { Markup } = require('telegraf');
 const { updateSession, getSession, getNavigationPath } = require('../utils/sessionManager');
+const {
+  EMOJI,
+  HEADERS,
+  ERRORS,
+  NAV,
+  formatBreadcrumb,
+  showTyping,
+  safeEditMessage,
+  safeAnswerCallback
+} = require('../utils/branding');
 
 /**
  * Handle year selection - Show semesters
- * @param {Object} ctx - Telegraf context
  */
 async function handleYearSelect(ctx) {
   try {
-    // Acknowledge callback query
-    await ctx.answerCbQuery();
+    await safeAnswerCallback(ctx, EMOJI.loading);
     
     // Extract year from callback data
     const year = parseInt(ctx.callbackQuery.data.replace('year_', ''));
@@ -35,29 +43,29 @@ async function handleYearSelect(ctx) {
     // Build semester selection buttons
     const buttons = [
       [
-        Markup.button.callback('📘 Semester 1', 'semester_1'),
-        Markup.button.callback('📗 Semester 2', 'semester_2')
+        Markup.button.callback(`${EMOJI.semester} Semester 1`, 'semester_1'),
+        Markup.button.callback(`📗 Semester 2`, 'semester_2')
       ],
-      [Markup.button.callback('⬅️ Back to Years', `department_${session.departmentId}`)]
+      [Markup.button.callback(NAV.backTo('Years'), `department_${session.departmentId}`)],
+      [
+        Markup.button.callback(NAV.home, 'go_home'),
+        Markup.button.callback(NAV.search, 'go_search')
+      ]
     ];
     
+    const message = `${HEADERS.selectSemester(year)}\n\n${formatBreadcrumb(navPath)}`;
+    
     // Edit message with semester options
-    await ctx.editMessageText(
-      `📅 *Year ${year}*\n` +
-      `📍 ${navPath}\n\n` +
-      'Select your semester:',
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard(buttons)
-      }
-    );
+    await safeEditMessage(ctx, message, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(buttons)
+    });
     
     console.log(`👤 User selected year: ${year}`);
     
   } catch (error) {
     console.error('❌ Semester handler error:', error.message);
-    await ctx.answerCbQuery('An error occurred');
-    await ctx.reply('❌ An error occurred. Please try /browse again.');
+    await ctx.reply(ERRORS.general);
   }
 }
 

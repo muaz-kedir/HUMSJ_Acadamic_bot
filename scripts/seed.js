@@ -25,7 +25,9 @@ const colleges = [
   { name: 'Behavioral Science', description: 'Education and psychology programs' },
   { name: 'Agriculture College', description: 'Agricultural sciences and rural development' },
   { name: 'Business and Economics College', description: 'Business administration and economics' },
+  { name: 'CCI', description: 'College of Computing and Informatics' },
   { name: 'CNCS', description: 'College of Natural and Computational Sciences' },
+  { name: 'Law College', description: 'Legal studies and jurisprudence' },
   { name: 'Social Science', description: 'Social sciences and humanities' }
 ];
 
@@ -50,12 +52,23 @@ const departments = [
   { collegeName: 'Business and Economics College', name: 'Management', description: 'Business management and leadership' },
   { collegeName: 'Business and Economics College', name: 'Public Administration and Development Management', description: 'Public sector management' },
   
+  // CCI (College of Computing and Informatics)
+  { collegeName: 'CCI', name: 'Computer Science', description: 'Software development and algorithms' },
+  { collegeName: 'CCI', name: 'Information Technology', description: 'IT systems and infrastructure' },
+  { collegeName: 'CCI', name: 'Information Systems', description: 'Business information systems' },
+  { collegeName: 'CCI', name: 'Information Science', description: 'Information management and retrieval' },
+  { collegeName: 'CCI', name: 'Software Engineering', description: 'Software design and development' },
+  { collegeName: 'CCI', name: 'Statistics', description: 'Statistical analysis and probability' },
+  
   // CNCS (College of Natural and Computational Sciences)
   { collegeName: 'CNCS', name: 'Mathematics', description: 'Pure and applied mathematics' },
   { collegeName: 'CNCS', name: 'Physics', description: 'Physical sciences' },
   { collegeName: 'CNCS', name: 'Chemistry', description: 'Chemical sciences' },
   { collegeName: 'CNCS', name: 'Biology', description: 'Biological sciences' },
   { collegeName: 'CNCS', name: 'Biotechnology', description: 'Applied biological technology' },
+  
+  // Law College
+  { collegeName: 'Law College', name: 'Law', description: 'Legal studies and practice' },
   
   // Social Science
   { collegeName: 'Social Science', name: 'Geography and Environmental Studies', description: 'Geography and environment' },
@@ -84,11 +97,36 @@ const courses = [
   { deptName: 'Economics', year: 1, semester: 2, courseCode: 'ECO102', name: 'Macroeconomics', description: 'National economic systems' },
   { deptName: 'Economics', year: 2, semester: 1, courseCode: 'ECO201', name: 'Development Economics', description: 'Economic development theory' },
   
+  // Computer Science courses
+  { deptName: 'Computer Science', year: 1, semester: 1, courseCode: 'CS101', name: 'Introduction to Programming', description: 'Basic programming concepts' },
+  { deptName: 'Computer Science', year: 1, semester: 2, courseCode: 'CS102', name: 'Object-Oriented Programming', description: 'OOP concepts and design' },
+  { deptName: 'Computer Science', year: 2, semester: 1, courseCode: 'CS201', name: 'Data Structures', description: 'Arrays, lists, trees, graphs' },
+  { deptName: 'Computer Science', year: 2, semester: 2, courseCode: 'CS202', name: 'Algorithms', description: 'Algorithm design and analysis' },
+  
+  // Information Technology courses
+  { deptName: 'Information Technology', year: 1, semester: 1, courseCode: 'IT101', name: 'IT Fundamentals', description: 'Basic IT concepts' },
+  { deptName: 'Information Technology', year: 1, semester: 2, courseCode: 'IT102', name: 'Networking Basics', description: 'Computer networks introduction' },
+  { deptName: 'Information Technology', year: 2, semester: 1, courseCode: 'IT201', name: 'Database Systems', description: 'Database design and SQL' },
+  
+  // Software Engineering courses
+  { deptName: 'Software Engineering', year: 1, semester: 1, courseCode: 'SE101', name: 'Software Engineering Principles', description: 'SE fundamentals' },
+  { deptName: 'Software Engineering', year: 2, semester: 1, courseCode: 'SE201', name: 'Software Design', description: 'Design patterns and architecture' },
+  
+  // Information Science courses
+  { deptName: 'Information Science', year: 1, semester: 1, courseCode: 'INS101', name: 'Introduction to Information Science', description: 'Fundamentals of information science' },
+  { deptName: 'Information Science', year: 1, semester: 2, courseCode: 'INS102', name: 'Information Organization', description: 'Organizing and classifying information' },
+  { deptName: 'Information Science', year: 2, semester: 1, courseCode: 'INS201', name: 'Information Retrieval', description: 'Search and retrieval systems' },
+  
   // Mathematics courses
   { deptName: 'Mathematics', year: 1, semester: 1, courseCode: 'MAT101', name: 'Calculus I', description: 'Differential calculus' },
   { deptName: 'Mathematics', year: 1, semester: 2, courseCode: 'MAT102', name: 'Calculus II', description: 'Integral calculus' },
   { deptName: 'Mathematics', year: 2, semester: 1, courseCode: 'MAT201', name: 'Linear Algebra', description: 'Vectors and matrices' },
   { deptName: 'Mathematics', year: 2, semester: 2, courseCode: 'MAT202', name: 'Differential Equations', description: 'Ordinary differential equations' },
+  
+  // Statistics courses
+  { deptName: 'Statistics', year: 1, semester: 1, courseCode: 'STA101', name: 'Introduction to Statistics', description: 'Basic statistical concepts' },
+  { deptName: 'Statistics', year: 1, semester: 2, courseCode: 'STA102', name: 'Probability Theory', description: 'Probability and distributions' },
+  { deptName: 'Statistics', year: 2, semester: 1, courseCode: 'STA201', name: 'Statistical Inference', description: 'Hypothesis testing and estimation' },
   
   // Physics courses
   { deptName: 'Physics', year: 1, semester: 1, courseCode: 'PHY101', name: 'General Physics I', description: 'Mechanics and thermodynamics' },
@@ -112,7 +150,13 @@ const courses = [
   
   // History courses
   { deptName: 'History and Heritage Management', year: 1, semester: 1, courseCode: 'HIS101', name: 'World History', description: 'Global historical events' },
-  { deptName: 'History and Heritage Management', year: 1, semester: 2, courseCode: 'HIS102', name: 'Ethiopian History', description: 'History of Ethiopia' }
+  { deptName: 'History and Heritage Management', year: 1, semester: 2, courseCode: 'HIS102', name: 'Ethiopian History', description: 'History of Ethiopia' },
+  
+  // Law courses
+  { deptName: 'Law', year: 1, semester: 1, courseCode: 'LAW101', name: 'Introduction to Law', description: 'Basic legal concepts and principles' },
+  { deptName: 'Law', year: 1, semester: 2, courseCode: 'LAW102', name: 'Constitutional Law', description: 'Constitutional principles and rights' },
+  { deptName: 'Law', year: 2, semester: 1, courseCode: 'LAW201', name: 'Criminal Law', description: 'Criminal justice and procedures' },
+  { deptName: 'Law', year: 2, semester: 2, courseCode: 'LAW202', name: 'Contract Law', description: 'Contract formation and enforcement' }
 ];
 
 // Sample resources

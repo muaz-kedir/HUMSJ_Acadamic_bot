@@ -1,69 +1,72 @@
 /**
  * ================================
- * Search Handler
+ * Search Handler (Day 11 Enhanced)
  * ================================
  * 
- * Global search system that bypasses navigation.
- * Searches across courses, chapters (via resources), and resources.
- * Supports pagination and filtering.
+ * Global search with polished UI and loading states.
  */
 
 const { Markup } = require('telegraf');
 const Course = require('../db/schemas/Course');
 const Resource = require('../db/schemas/Resource');
-const { updateSearchSession, getSearchSession } = require('../utils/sessionManager');
+const { updateSearchSession, getSearchSession, updateSession } = require('../utils/sessionManager');
+const {
+  EMOJI,
+  EMPTY,
+  ERRORS,
+  NAV,
+  LOADING,
+  getTypeIcon,
+  showTyping,
+  safeEditMessage,
+  safeAnswerCallback
+} = require('../utils/branding');
 
-// Constants
 const RESULTS_PER_PAGE = 5;
 const MIN_SEARCH_LENGTH = 3;
 const MAX_RESULTS = 200;
 
 /**
  * Handle /search command
- * @param {Object} ctx - Telegraf context
  */
 async function handleSearch(ctx) {
   try {
-    // Extract search keyword from command
     const text = ctx.message.text;
     const keyword = text.replace(/^\/search\s*/i, '').trim();
     
-    // Validate keyword length
     if (!keyword || keyword.length < MIN_SEARCH_LENGTH) {
       return ctx.reply(
-        '🔍 *Global Search*\n\n' +
-        'Enter at least 3 characters to search.\n\n' +
-        '*Usage:* `/search calculus`\n' +
-        '*Example:* `/search biology`',
+        `${EMOJI.search} *Search Resources*\n\n` +
+        `Enter at least ${MIN_SEARCH_LENGTH} characters to search.\n\n` +
+        `*Usage:* \`/search calculus\`\n` +
+        `*Examples:*\n` +
+        `${EMOJI.bullet} \`/search biology\`\n` +
+        `${EMOJI.bullet} \`/search chapter 1\`\n` +
+        `${EMOJI.bullet} \`/search exam\``,
         { parse_mode: 'Markdown' }
       );
     }
     
-    // Perform search
+    // Show typing indicator
+    await showTyping(ctx);
+    
     await performSearch(ctx, keyword, 0, 'all');
     
   } catch (error) {
     console.error('❌ Search error:', error.message);
-    await ctx.reply('❌ Search failed. Please try again later.');
+    await ctx.reply(ERRORS.general);
   }
 }
 
 /**
  * Perform the actual search
- * @param {Object} ctx - Telegraf context
- * @param {string} keyword - Search term
- * @param {number} page - Current page (0-indexed)
- * @param {string} filter - Filter type: 'all', 'courses', 'chapters', 'resources'
  */
 async function performSearch(ctx, keyword, page = 0, filter = 'all') {
   try {
-    // Create case-insensitive regex
     const regex = new RegExp(keyword, 'i');
     
-    // Store search in session
     updateSearchSession(ctx.chat.id, { keyword, page, filter });
     
-    // Search results containers
     let courses = [];
     let chapters = [];
     let resources = [];
@@ -79,7 +82,7 @@ async function performSearch(ctx, keyword, page = 0, filter = 'all') {
       }).limit(MAX_RESULTS).populate('departmentId');
     }
     
-    // Search Resources (for chapters and files)
+    // Search Resources
     if (filter === 'all' || filter === 'chapters' || filter === 'resources') {
       const resourceResults = await Resource.find({
         $or: [
@@ -88,16 +91,13 @@ async function performSearch(ctx, keyword, page = 0, filter = 'all') {
         ]
       }).limit(MAX_RESULTS).populate('courseId');
       
-      // Separate chapters and resources
       const chapterSet = new Set();
       
       resourceResults.forEach(r => {
-        // Add to resources
         if (filter === 'all' || filter === 'resources') {
           resources.push(r);
         }
         
-        // Extract unique chapters
         if ((filter === 'all' || filter === 'chapters') && r.chapter) {
           const chapterKey = `${r.courseId?._id}_${r.chapter}`;
           if (!chapterSet.has(chapterKey)) {
@@ -112,78 +112,77 @@ async function performSearch(ctx, keyword, page = 0, filter = 'all') {
       });
     }
     
-    // Check total results
     const totalResults = courses.length + chapters.length + resources.length;
     
     if (totalResults === 0) {
-      return ctx.reply(
-        `🔍 *Search Results*\n\n` +
-        `No results found for "${keyword}".\n\n` +
-        'Try more general keywords or check spelling.',
-        { parse_mode: 'Markdown' }
-      );
+      const buttons = [
+        [Markup.button.callback(`${EMOJI.college} Browse Instead`, 'browse_colleges')],
+        [Markup.button.callback(NAV.home, 'go_home')]
+      ];
+      
+      const message = `${EMOJI.search} *Search Results*\n\n` +
+        `${EMPTY.search}\n\n` +
+        `_Searched for: "${keyword}"_`;
+      
+      if (ctx.callbackQuery) {
+        return safeEditMessage(ctx, message, {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard(buttons)
+        });
+      }
+      return ctx.reply(message, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons)
+      });
     }
     
-    if (totalResults > MAX_RESULTS) {
-      return ctx.reply(
-        `🔍 *Search Results*\n\n` +
-        `Too many results (${totalResults}+). Please refine your search term.`,
-        { parse_mode: 'Markdown' }
-      );
-    }
+    // Build response
+    let message = `${EMOJI.search} *Search results for:* "${keyword}"\n`;
+    message += `${EMOJI.stats} Found: ${courses.length} courses, ${chapters.length} chapters, ${resources.length} resources\n\n`;
     
-    // Build response message
-    let message = `🔍 *Search results for:* "${keyword}"\n`;
-    message += `📊 Found: ${courses.length} courses, ${chapters.length} chapters, ${resources.length} resources\n\n`;
-    
-    // Build buttons array
     const buttons = [];
     
-    // Add filter buttons
+    // Filter buttons
     buttons.push([
       Markup.button.callback(
-        filter === 'all' ? '✅ All' : '📋 All',
+        filter === 'all' ? `${EMOJI.success} All` : '📋 All',
         `search_filter_all_${encodeURIComponent(keyword)}`
       ),
       Markup.button.callback(
-        filter === 'courses' ? '✅ Courses' : '📘 Courses',
+        filter === 'courses' ? `${EMOJI.success} Courses` : `${EMOJI.course} Courses`,
         `search_filter_courses_${encodeURIComponent(keyword)}`
       ),
       Markup.button.callback(
-        filter === 'resources' ? '✅ Resources' : '📄 Resources',
+        filter === 'resources' ? `${EMOJI.success} Files` : `${EMOJI.resource} Files`,
         `search_filter_resources_${encodeURIComponent(keyword)}`
       )
     ]);
     
-    // Calculate pagination
+    // Build all items
     const allItems = [];
     
-    // Add courses to items
     courses.forEach(c => {
       allItems.push({
         type: 'course',
-        label: `📘 ${c.courseCode} – ${c.name}`,
+        label: `${EMOJI.course} ${c.courseCode} – ${c.name}`,
         callback: `course_${c._id}`,
         dept: c.departmentId?.name || 'Unknown'
       });
     });
     
-    // Add chapters to items
     chapters.forEach(ch => {
       allItems.push({
         type: 'chapter',
-        label: `📑 ${ch.chapter}`,
+        label: `${EMOJI.chapter} ${ch.chapter}`,
         callback: `chapter_${encodeURIComponent(ch.chapter)}_${ch.courseId}`,
         course: ch.course?.courseCode || 'Unknown'
       });
     });
     
-    // Add resources to items
     resources.forEach(r => {
-      const typeIcons = { pdf: '📄', slide: '📊', book: '📖', exam: '📝' };
       allItems.push({
         type: 'resource',
-        label: `${typeIcons[r.type] || '📁'} ${r.title}`,
+        label: `${getTypeIcon(r.type)} ${r.title}`,
         callback: `resource_${r._id}`,
         chapter: r.chapter
       });
@@ -210,28 +209,32 @@ async function performSearch(ctx, keyword, page = 0, filter = 'all') {
       ]);
     });
     
-    // Add pagination buttons
+    // Pagination buttons
     const paginationRow = [];
     if (page > 0) {
       paginationRow.push(
-        Markup.button.callback('⬅️ Previous', `search_page_${page - 1}_${filter}_${encodeURIComponent(keyword)}`)
+        Markup.button.callback('◀️ Previous', `search_page_${page - 1}_${filter}_${encodeURIComponent(keyword)}`)
       );
     }
     if (endIdx < allItems.length) {
       paginationRow.push(
-        Markup.button.callback('Next ➡️', `search_page_${page + 1}_${filter}_${encodeURIComponent(keyword)}`)
+        Markup.button.callback('Next ▶️', `search_page_${page + 1}_${filter}_${encodeURIComponent(keyword)}`)
       );
     }
     if (paginationRow.length > 0) {
       buttons.push(paginationRow);
     }
     
-    // Add page indicator
+    // Navigation
+    buttons.push([
+      Markup.button.callback(NAV.home, 'go_home'),
+      Markup.button.callback(NAV.favorites, 'go_favorites')
+    ]);
+    
     message += `📄 Page ${page + 1} of ${totalPages}`;
     
-    // Send or edit message
     if (ctx.callbackQuery) {
-      await ctx.editMessageText(message, {
+      await safeEditMessage(ctx, message, {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard(buttons)
       });
@@ -252,13 +255,12 @@ async function performSearch(ctx, keyword, page = 0, filter = 'all') {
 
 /**
  * Handle search pagination
- * @param {Object} ctx - Telegraf context
  */
 async function handleSearchPagination(ctx) {
   try {
-    await ctx.answerCbQuery();
+    await safeAnswerCallback(ctx, EMOJI.loading);
+    await showTyping(ctx);
     
-    // Parse callback data: search_page_<page>_<filter>_<keyword>
     const data = ctx.callbackQuery.data;
     const parts = data.split('_');
     const page = parseInt(parts[2]);
@@ -269,19 +271,18 @@ async function handleSearchPagination(ctx) {
     
   } catch (error) {
     console.error('❌ Pagination error:', error.message);
-    await ctx.answerCbQuery('An error occurred');
+    await ctx.answerCbQuery(ERRORS.general);
   }
 }
 
 /**
  * Handle search filter change
- * @param {Object} ctx - Telegraf context
  */
 async function handleSearchFilter(ctx) {
   try {
-    await ctx.answerCbQuery();
+    await safeAnswerCallback(ctx, EMOJI.loading);
+    await showTyping(ctx);
     
-    // Parse callback data: search_filter_<filter>_<keyword>
     const data = ctx.callbackQuery.data;
     const parts = data.split('_');
     const filter = parts[2];
@@ -291,37 +292,30 @@ async function handleSearchFilter(ctx) {
     
   } catch (error) {
     console.error('❌ Filter error:', error.message);
-    await ctx.answerCbQuery('An error occurred');
+    await ctx.answerCbQuery(ERRORS.general);
   }
 }
 
 /**
  * Handle chapter selection from search results
- * Needs special handling because we have courseId in callback
- * @param {Object} ctx - Telegraf context
  */
 async function handleSearchChapterSelect(ctx) {
   try {
-    await ctx.answerCbQuery();
+    await safeAnswerCallback(ctx, EMOJI.loading);
+    await showTyping(ctx);
     
-    // Parse: chapter_<encodedChapter>_<courseId>
     const data = ctx.callbackQuery.data;
     const parts = data.replace('chapter_', '').split('_');
     const courseId = parts.pop();
     const chapter = decodeURIComponent(parts.join('_'));
     
-    // Import resource handler dynamically to avoid circular deps
-    const { updateSession } = require('../utils/sessionManager');
-    const Resource = require('../db/schemas/Resource');
     const Course = require('../db/schemas/Course');
     
-    // Get course info
     const course = await Course.findById(courseId);
     if (!course) {
-      return ctx.reply('❌ Course not found.');
+      return ctx.reply(ERRORS.notFound);
     }
     
-    // Update session
     updateSession(ctx.chat.id, {
       courseId: course._id,
       courseCode: course.courseCode,
@@ -329,64 +323,63 @@ async function handleSearchChapterSelect(ctx) {
       chapter: chapter
     });
     
-    // Fetch resources for this chapter
     const resources = await Resource.find({
       courseId: courseId,
       chapter: chapter
     });
     
     if (!resources || resources.length === 0) {
-      return ctx.editMessageText(
-        `📑 *${chapter}*\n` +
-        `📖 ${course.courseCode} – ${course.name}\n\n` +
-        '📭 No resources found for this chapter.',
-        { parse_mode: 'Markdown' }
+      const buttons = [
+        [Markup.button.callback(`${EMOJI.back} Back to Search`, 'back_search')],
+        [Markup.button.callback(NAV.home, 'go_home')]
+      ];
+      
+      return safeEditMessage(ctx,
+        `${EMOJI.chapter} *${chapter}*\n` +
+        `${EMOJI.course} ${course.courseCode} – ${course.name}\n\n` +
+        `${EMPTY.resources}`,
+        { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }
       );
     }
     
-    // Build resource buttons
-    const typeIcons = { pdf: '📄', slide: '📊', book: '📖', exam: '📝' };
     const buttons = resources.map(r => [
       Markup.button.callback(
-        `${typeIcons[r.type] || '📁'} ${r.title}`,
+        `${getTypeIcon(r.type)} ${r.title}`,
         `resource_${r._id}`
       )
     ]);
     
-    buttons.push([Markup.button.callback('🔍 Back to Search', 'back_search')]);
+    buttons.push([Markup.button.callback(`${EMOJI.back} Back to Search`, 'back_search')]);
+    buttons.push([Markup.button.callback(NAV.home, 'go_home')]);
     
-    await ctx.editMessageText(
-      `📑 *${chapter}*\n` +
-      `📖 ${course.courseCode} – ${course.name}\n\n` +
-      `Found ${resources.length} resource(s):`,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard(buttons)
-      }
+    await safeEditMessage(ctx,
+      `${EMOJI.chapter} *${chapter}*\n` +
+      `${EMOJI.course} ${course.courseCode} – ${course.name}\n\n` +
+      `${EMOJI.resource} Found ${resources.length} resource(s):`,
+      { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }
     );
     
   } catch (error) {
     console.error('❌ Search chapter error:', error.message);
-    await ctx.reply('❌ An error occurred.');
+    await ctx.reply(ERRORS.general);
   }
 }
 
 /**
  * Handle back to search
- * @param {Object} ctx - Telegraf context
  */
 async function handleBackToSearch(ctx) {
   try {
-    await ctx.answerCbQuery();
+    await safeAnswerCallback(ctx);
     
     const session = getSearchSession(ctx.chat.id);
     if (session && session.keyword) {
       await performSearch(ctx, session.keyword, session.page || 0, session.filter || 'all');
     } else {
-      await ctx.editMessageText(
-        '🔍 *Global Search*\n\n' +
-        'Use `/search <keyword>` to search.\n\n' +
-        '*Example:* `/search biology`',
+      await safeEditMessage(ctx,
+        `${EMOJI.search} *Search Resources*\n\n` +
+        `Use \`/search <keyword>\` to search.\n\n` +
+        `*Example:* \`/search biology\``,
         { parse_mode: 'Markdown' }
       );
     }
@@ -398,20 +391,15 @@ async function handleBackToSearch(ctx) {
 
 /**
  * Handle text messages (suggest search)
- * @param {Object} ctx - Telegraf context
  */
 async function handleTextMessage(ctx) {
   const text = ctx.message.text;
   
-  // Ignore if it's a command
   if (text.startsWith('/')) return;
-  
-  // Ignore very short messages
   if (text.length < 3) return;
   
-  // Suggest search
   await ctx.reply(
-    `💡 Did you mean to search?\n\n` +
+    `${EMOJI.info} Did you mean to search?\n\n` +
     `Type: \`/search ${text}\``,
     { parse_mode: 'Markdown' }
   );

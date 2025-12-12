@@ -1,17 +1,23 @@
 /**
  * ================================
- * Stats Handler (Admin)
+ * Stats Handler (Day 11 Enhanced)
  * ================================
  * 
- * Download statistics and analytics.
+ * Download statistics with polished UI.
  */
 
 const { Markup } = require('telegraf');
 const DownloadStat = require('../db/schemas/DownloadStat');
 const Resource = require('../db/schemas/Resource');
+const {
+  EMOJI,
+  ERRORS,
+  NAV,
+  LOADING,
+  showTyping,
+  safeAnswerCallback
+} = require('../utils/branding');
 
-// Admin user IDs (add your Telegram ID here)
-// To find your ID, message @userinfobot on Telegram
 const ADMIN_IDS = process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',') : [];
 
 /**
@@ -26,15 +32,8 @@ function isAdmin(userId) {
  */
 async function handleStats(ctx) {
   try {
-    const oduserId = ctx.from.id.toString();
-    
-    // For now, allow all users to see basic stats
-    // Uncomment below to restrict to admins only
-    // if (!isAdmin(oduserId)) {
-    //   return ctx.reply('⛔ Admin access required.');
-    // }
-    
-    await ctx.reply('📊 Loading statistics...');
+    // Show typing indicator
+    await showTyping(ctx);
     
     // Get total downloads
     const totalDownloads = await DownloadStat.countDocuments({ action: 'download' });
@@ -48,12 +47,11 @@ async function handleStats(ctx) {
       { $limit: 5 }
     ]);
     
-    // Get resource details
     let topResourcesText = '';
     for (const item of topResources) {
       const resource = await Resource.findById(item._id);
       if (resource) {
-        topResourcesText += `• ${resource.title} (${item.count} downloads)\n`;
+        topResourcesText += `${EMOJI.bullet} ${resource.title} (${item.count} downloads)\n`;
       }
     }
     
@@ -86,28 +84,33 @@ async function handleStats(ctx) {
     
     let dailyText = '';
     dailyStats.forEach(d => {
-      dailyText += `• ${d._id}: ${d.count} downloads\n`;
+      dailyText += `${EMOJI.bullet} ${d._id}: ${d.count} downloads\n`;
     });
     
     const message = 
-      `📊 *HUMSJ Bot Statistics*\n\n` +
-      `📥 *Total Downloads:* ${totalDownloads}\n` +
+      `${EMOJI.stats} *HUMSJ Library Statistics*\n\n` +
+      `${EMOJI.download} *Total Downloads:* ${totalDownloads}\n` +
       `👁️ *Total Previews:* ${totalPreviews}\n\n` +
-      `🏆 *Top Resources:*\n${topResourcesText || 'No data yet'}\n` +
-      `👥 *Most Active Users:*\n${topUsersText || 'No data yet'}\n` +
-      `📅 *Last 7 Days:*\n${dailyText || 'No data yet'}`;
+      `🏆 *Top Resources:*\n${topResourcesText || '_No data yet_'}\n` +
+      `👥 *Most Active Users:*\n${topUsersText || '_No data yet_'}\n` +
+      `${EMOJI.year} *Last 7 Days:*\n${dailyText || '_No data yet_'}`;
+    
+    const buttons = [
+      [Markup.button.callback('🔄 Refresh', 'stats_refresh')],
+      [
+        Markup.button.callback(NAV.home, 'go_home'),
+        Markup.button.callback(NAV.favorites, 'go_favorites')
+      ]
+    ];
     
     await ctx.reply(message, {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('🔄 Refresh', 'stats_refresh')],
-        [Markup.button.callback('🏠 Home', 'go_home')]
-      ])
+      ...Markup.inlineKeyboard(buttons)
     });
     
   } catch (error) {
     console.error('❌ Stats error:', error.message);
-    await ctx.reply('⚠️ Failed to load statistics.');
+    await ctx.reply(ERRORS.general);
   }
 }
 
@@ -116,7 +119,7 @@ async function handleStats(ctx) {
  */
 async function handleStatsRefresh(ctx) {
   try {
-    await ctx.answerCbQuery('🔄 Refreshing...');
+    await safeAnswerCallback(ctx, '🔄 Refreshing...');
     await handleStats(ctx);
   } catch (error) {
     console.error('❌ Stats refresh error:', error.message);

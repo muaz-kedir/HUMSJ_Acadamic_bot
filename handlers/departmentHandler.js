@@ -1,25 +1,36 @@
 /**
  * ================================
- * Department Handler
+ * Department Handler (Day 11 Enhanced)
  * ================================
  * 
- * Triggered when user selects a college.
- * Shows all departments belonging to that college.
+ * Shows departments when user selects a college.
+ * Includes loading states and back navigation.
  */
 
 const { Markup } = require('telegraf');
 const College = require('../db/schemas/College');
 const Department = require('../db/schemas/Department');
-const { updateSession, getNavigationPath } = require('../utils/sessionManager');
+const { updateSession } = require('../utils/sessionManager');
+const {
+  EMOJI,
+  HEADERS,
+  EMPTY,
+  ERRORS,
+  NAV,
+  showTyping,
+  safeEditMessage,
+  safeAnswerCallback
+} = require('../utils/branding');
 
 /**
  * Handle college selection - Show departments
- * @param {Object} ctx - Telegraf context
  */
 async function handleCollegeSelect(ctx) {
   try {
-    // Acknowledge callback query
-    await ctx.answerCbQuery();
+    await safeAnswerCallback(ctx, EMOJI.loading);
+    
+    // Show typing indicator
+    await showTyping(ctx);
     
     // Extract college ID from callback data
     const collegeId = ctx.callbackQuery.data.replace('college_', '');
@@ -27,7 +38,7 @@ async function handleCollegeSelect(ctx) {
     // Fetch college details
     const college = await College.findById(collegeId);
     if (!college) {
-      return ctx.reply('❌ College not found. Please try again.');
+      return ctx.reply(ERRORS.notFound);
     }
     
     // Update session
@@ -45,40 +56,43 @@ async function handleCollegeSelect(ctx) {
     
     // Check if departments exist
     if (!departments || departments.length === 0) {
-      return ctx.editMessageText(
-        `🏛️ *${college.name}*\n\n` +
-        '📭 No departments found in this college.',
-        { parse_mode: 'Markdown' }
+      const buttons = [
+        [Markup.button.callback(NAV.backTo('Colleges'), 'browse_colleges')],
+        [Markup.button.callback(NAV.home, 'go_home')]
+      ];
+      
+      return safeEditMessage(ctx,
+        `${EMOJI.college} *${college.name}*\n\n${EMPTY.departments}`,
+        { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }
       );
     }
     
     // Build inline keyboard with department buttons
     const buttons = departments.map(dept => [
       Markup.button.callback(
-        `📁 ${dept.name}`,
+        `${EMOJI.department} ${dept.name}`,
         `department_${dept._id}`
       )
     ]);
     
-    // Add back button
-    buttons.push([Markup.button.callback('⬅️ Back to Colleges', 'back_colleges')]);
+    // Add back navigation
+    buttons.push([Markup.button.callback(NAV.backTo('Colleges'), 'browse_colleges')]);
+    buttons.push([
+      Markup.button.callback(NAV.home, 'go_home'),
+      Markup.button.callback(NAV.search, 'go_search')
+    ]);
     
     // Edit message with departments
-    await ctx.editMessageText(
-      `🏛️ *${college.name}*\n\n` +
-      'Select a department:',
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard(buttons)
-      }
-    );
+    await safeEditMessage(ctx, HEADERS.selectDepartment(college.name), {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(buttons)
+    });
     
     console.log(`👤 User selected college: ${college.name}`);
     
   } catch (error) {
     console.error('❌ Department handler error:', error.message);
-    await ctx.answerCbQuery('An error occurred');
-    await ctx.reply('❌ An error occurred. Please try /browse again.');
+    await ctx.reply(ERRORS.general);
   }
 }
 

@@ -77,7 +77,18 @@ async function getPdfInfo(filePath) {
     };
     
   } catch (error) {
-    return { pageCount: 0, fileSize: 0, error: error.message };
+    // Return file size even if PDF parsing fails
+    try {
+      const stats = fs.statSync(filePath);
+      return {
+        pageCount: 0,
+        fileSize: stats.size,
+        fileSizeMB: (stats.size / (1024 * 1024)).toFixed(2),
+        error: error.message
+      };
+    } catch {
+      return { pageCount: 0, fileSize: 0, error: error.message };
+    }
   }
 }
 

@@ -1,9 +1,9 @@
 /**
  * ================================
- * PDF Handler (Day 9)
+ * PDF Handler (Day 11 Enhanced)
  * ================================
  * 
- * PDF preview, reading, and download options.
+ * PDF preview, reading, and download with polished UI.
  */
 
 const { Markup } = require('telegraf');
@@ -13,17 +13,27 @@ const Resource = require('../db/schemas/Resource');
 const DownloadStat = require('../db/schemas/DownloadStat');
 const ReadingProgress = require('../db/schemas/ReadingProgress');
 const { extractPdfPreview, getPdfInfo, createZipFile } = require('../utils/pdfUtils');
-
-const TYPE_ICONS = { pdf: '📄', slide: '📊', book: '📖', exam: '📝' };
+const {
+  EMOJI,
+  ERRORS,
+  NAV,
+  getTypeIcon,
+  showTyping,
+  safeEditMessage,
+  safeAnswerCallback
+} = require('../utils/branding');
 
 /**
  * Show resource preview with options
  */
 async function showResourcePreview(ctx, resourceId) {
   try {
+    // Show typing indicator
+    await showTyping(ctx);
+    
     const resource = await Resource.findById(resourceId).populate('courseId');
     if (!resource) {
-      return ctx.reply('❌ Resource not found.');
+      return ctx.reply(ERRORS.notFound);
     }
     
     const courseCode = resource.courseId?.courseCode || '';
@@ -46,14 +56,14 @@ async function showResourcePreview(ctx, resourceId) {
     
     // Build message
     let message = 
-      `${TYPE_ICONS[resource.type] || '📁'} *${resource.title}*\n\n` +
-      `📘 Course: ${courseCode} – ${courseName}\n` +
-      `📑 Chapter: ${resource.chapter}\n` +
-      `📄 Pages: ${pdfInfo.pageCount || 'N/A'}\n` +
+      `${getTypeIcon(resource.type)} *${resource.title}*\n\n` +
+      `${EMOJI.course} Course: ${courseCode} – ${courseName}\n` +
+      `${EMOJI.chapter} Chapter: ${resource.chapter}\n` +
+      `${EMOJI.resource} Pages: ${pdfInfo.pageCount || 'N/A'}\n` +
       `💾 Size: ${pdfInfo.fileSizeMB || 'N/A'} MB\n`;
     
     if (previewText) {
-      message += `\n📖 *Preview:*\n_"${previewText.substring(0, 200)}..."_\n`;
+      message += `\n${EMOJI.course} *Preview:*\n_"${previewText.substring(0, 200)}..."_\n`;
     }
     
     // Build buttons
@@ -70,29 +80,44 @@ async function showResourcePreview(ctx, resourceId) {
     }
     
     buttons.push([
-      Markup.button.callback('📖 Read Preview', `pdf_preview_${resourceId}`),
-      Markup.button.callback('⬇️ Download', `pdf_download_${resourceId}`)
+      Markup.button.callback(`${EMOJI.course} Read Preview`, `pdf_preview_${resourceId}`),
+      Markup.button.callback(`${EMOJI.download} Download`, `pdf_download_${resourceId}`)
     ]);
     
     buttons.push([
       Markup.button.callback('🗜️ Download ZIP', `pdf_zip_${resourceId}`),
-      Markup.button.callback('⭐ Favorite', `fav_add_${resourceId}`)
+      Markup.button.callback(`${EMOJI.favorites} Favorite`, `fav_add_${resourceId}`)
+    ]);
+    
+    // AI Study Tools - only show if file exists
+    if (fs.existsSync(filePath)) {
+      buttons.push([
+        Markup.button.callback('🧠 AI Summary', `ai_summary_${resourceId}`),
+        Markup.button.callback('🔖 Flashcards', `ai_flashcards_${resourceId}`)
+      ]);
+      
+      buttons.push([
+        Markup.button.callback('📝 Generate Quiz', `ai_quiz_${resourceId}`),
+        Markup.button.callback('🧩 Mind Map', `ai_mindmap_${resourceId}`)
+      ]);
+    } else {
+      message += `\n⚠️ _AI features unavailable - file not uploaded yet_\n`;
+    }
+    
+    buttons.push([
+      Markup.button.callback(NAV.backTo('Resources'), `chapter_${encodeURIComponent(resource.chapter)}`)
     ]);
     
     buttons.push([
-      Markup.button.callback('⬅️ Back', `chapter_${encodeURIComponent(resource.chapter)}`)
-    ]);
-    
-    buttons.push([
-      Markup.button.callback('🏠 Home', 'go_home'),
-      Markup.button.callback('🔍 Search', 'go_search')
+      Markup.button.callback(NAV.home, 'go_home'),
+      Markup.button.callback(NAV.search, 'go_search')
     ]);
     
     // Record stat
     await DownloadStat.create({ oduserId, resourceId, action: 'preview' });
     
     if (ctx.callbackQuery) {
-      await ctx.editMessageText(message, {
+      await safeEditMessage(ctx, message, {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard(buttons)
       });
@@ -105,7 +130,7 @@ async function showResourcePreview(ctx, resourceId) {
     
   } catch (error) {
     console.error('❌ Resource preview error:', error.message);
-    await ctx.reply('⚠️ Something went wrong. Please try again.');
+    await ctx.reply(ERRORS.general);
   }
 }
 
@@ -114,21 +139,22 @@ async function showResourcePreview(ctx, resourceId) {
  */
 async function handlePdfPreview(ctx) {
   try {
-    await ctx.answerCbQuery('📖 Loading preview...');
+    await safeAnswerCallback(ctx, `${EMOJI.loading} Loading preview...`);
+    await showTyping(ctx);
     
     const resourceId = ctx.callbackQuery.data.replace('pdf_preview_', '');
     const resource = await Resource.findById(resourceId).populate('courseId');
     
     if (!resource) {
-      return ctx.reply('❌ Resource not found.');
+      return ctx.reply(ERRORS.notFound);
     }
     
     const filePath = path.join(process.cwd(), resource.filePath || '');
     
     if (!fs.existsSync(filePath)) {
       return ctx.reply(
-        '❌ File not available for preview.\n\n' +
-        '_The file may not be uploaded yet._',
+        `${EMOJI.warning} File not available for preview.\n\n` +
+        `_The file may not be uploaded yet._`,
         { parse_mode: 'Markdown' }
       );
     }
@@ -136,18 +162,18 @@ async function handlePdfPreview(ctx) {
     const preview = await extractPdfPreview(filePath, 1000);
     
     const message = 
-      `📖 *Preview: ${resource.title}*\n\n` +
-      `📄 Total Pages: ${preview.pageCount}\n\n` +
+      `${EMOJI.course} *Preview: ${resource.title}*\n\n` +
+      `${EMOJI.resource} Total Pages: ${preview.pageCount}\n\n` +
       `───────────────\n` +
       `${preview.text || 'No text content available.'}\n` +
       `───────────────`;
     
     const buttons = [
-      [Markup.button.callback('⬇️ Download Full PDF', `pdf_download_${resourceId}`)],
-      [Markup.button.callback('⬅️ Back', `resource_${resourceId}`)]
+      [Markup.button.callback(`${EMOJI.download} Download Full PDF`, `pdf_download_${resourceId}`)],
+      [Markup.button.callback(NAV.back, `resource_${resourceId}`)]
     ];
     
-    await ctx.editMessageText(message, {
+    await safeEditMessage(ctx, message, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard(buttons)
     });
@@ -163,13 +189,14 @@ async function handlePdfPreview(ctx) {
  */
 async function handlePdfDownload(ctx) {
   try {
-    await ctx.answerCbQuery('📥 Preparing download...');
+    await safeAnswerCallback(ctx, `${EMOJI.download} Preparing download...`);
+    await showTyping(ctx);
     
     const resourceId = ctx.callbackQuery.data.replace('pdf_download_', '');
     const resource = await Resource.findById(resourceId).populate('courseId');
     
     if (!resource) {
-      return ctx.reply('❌ Resource not found.');
+      return ctx.reply(ERRORS.notFound);
     }
     
     const filePath = path.join(process.cwd(), resource.filePath || '');
@@ -180,7 +207,7 @@ async function handlePdfDownload(ctx) {
       try {
         await ctx.replyWithDocument(
           { url: resource.fileUrl, filename: `${resource.title}.pdf` },
-          { caption: `📚 ${resource.title}\n📑 ${resource.chapter}` }
+          { caption: `${EMOJI.resource} ${resource.title}\n${EMOJI.chapter} ${resource.chapter}` }
         );
         
         await DownloadStat.create({ oduserId, resourceId, action: 'download' });
@@ -195,7 +222,7 @@ async function handlePdfDownload(ctx) {
     if (fs.existsSync(filePath)) {
       await ctx.replyWithDocument(
         { source: filePath },
-        { caption: `📚 ${resource.title}\n📑 ${resource.chapter}` }
+        { caption: `${EMOJI.resource} ${resource.title}\n${EMOJI.chapter} ${resource.chapter}` }
       );
       
       await DownloadStat.create({ oduserId, resourceId, action: 'download' });
@@ -205,14 +232,14 @@ async function handlePdfDownload(ctx) {
     
     // File not available
     await ctx.reply(
-      '❌ Sorry, this file is not available for download yet.\n\n' +
-      '_Please contact admin if this persists._',
+      `${EMOJI.warning} Sorry, this file is not available for download yet.\n\n` +
+      `_Please contact admin if this persists._`,
       { parse_mode: 'Markdown' }
     );
     
   } catch (error) {
     console.error('❌ PDF download error:', error.message);
-    await ctx.reply('⚠️ Download failed. Please try again.');
+    await ctx.reply(ERRORS.general);
   }
 }
 
@@ -221,28 +248,29 @@ async function handlePdfDownload(ctx) {
  */
 async function handleZipDownload(ctx) {
   try {
-    await ctx.answerCbQuery('🗜️ Creating ZIP...');
+    await safeAnswerCallback(ctx, '🗜️ Creating ZIP...');
+    await showTyping(ctx);
     
     const resourceId = ctx.callbackQuery.data.replace('pdf_zip_', '');
     const resource = await Resource.findById(resourceId);
     
     if (!resource) {
-      return ctx.reply('❌ Resource not found.');
+      return ctx.reply(ERRORS.notFound);
     }
     
     const filePath = path.join(process.cwd(), resource.filePath || '');
     
     if (!fs.existsSync(filePath)) {
-      return ctx.reply('❌ File not available for ZIP.');
+      return ctx.reply(`${EMOJI.warning} File not available for ZIP.`);
     }
     
-    await ctx.reply('🗜️ Creating ZIP file, please wait...');
+    await ctx.reply(`${EMOJI.loading} Creating ZIP file, please wait...`);
     
     const zipPath = await createZipFile(filePath, resource.title, resource.chapter);
     
     await ctx.replyWithDocument(
       { source: zipPath },
-      { caption: `🗜️ ${resource.title}.zip\n📑 ${resource.chapter}` }
+      { caption: `🗜️ ${resource.title}.zip\n${EMOJI.chapter} ${resource.chapter}` }
     );
     
     // Cleanup ZIP after sending
@@ -252,7 +280,7 @@ async function handleZipDownload(ctx) {
     
   } catch (error) {
     console.error('❌ ZIP error:', error.message);
-    await ctx.reply('⚠️ Failed to create ZIP. Please try again.');
+    await ctx.reply(ERRORS.general);
   }
 }
 
@@ -261,7 +289,7 @@ async function handleZipDownload(ctx) {
  */
 async function handleContinueReading(ctx) {
   try {
-    await ctx.answerCbQuery();
+    await safeAnswerCallback(ctx);
     
     const resourceId = ctx.callbackQuery.data.replace('pdf_continue_', '');
     const oduserId = ctx.from.id.toString();
@@ -277,8 +305,8 @@ async function handleContinueReading(ctx) {
         {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard([
-            [Markup.button.callback('⬇️ Download PDF', `pdf_download_${resourceId}`)],
-            [Markup.button.callback('⬅️ Back', `resource_${resourceId}`)]
+            [Markup.button.callback(`${EMOJI.download} Download PDF`, `pdf_download_${resourceId}`)],
+            [Markup.button.callback(NAV.back, `resource_${resourceId}`)]
           ])
         }
       );

@@ -63,8 +63,39 @@ const {
   handleAnalyticsRefresh
 } = require('./handlers/adminHandler');
 const { handleNotifyInterest } = require('./handlers/interestHandler');
+const {
+  handleAdminPanel,
+  handleUploadStart,
+  handleUploadCollegeSelect,
+  handleUploadDeptSelect,
+  handleUploadYearSelect,
+  handleUploadSemSelect,
+  handleUploadCourseSelect,
+  handleUploadTypeSelect,
+  handleUploadNewCourse,
+  handleUploadTextInput,
+  handleFileUpload,
+  handleAddCourseStart,
+  handleAddCourseCollegeSelect,
+  handleAddCourseDeptSelect,
+  handleAddCourseYearSelect,
+  handleAddCourseSemSelect,
+  handleManageCourses,
+  handleListCourses,
+  handleAdminCancel,
+  handleAdminPanelCallback
+} = require('./handlers/uploadHandler');
+const {
+  handleAISummary,
+  handleAISummaryLong,
+  handleAIFlashcards,
+  handleFlashcardPage,
+  handleAIQuiz,
+  handleAIMindMap
+} = require('./handlers/aiHandler');
 const { rateLimitMiddleware } = require('./utils/rateLimiter');
 const { clearSession } = require('./utils/sessionManager');
+const { isAIAvailable } = require('./utils/aiService');
 
 // ================================
 // Environment Validation
@@ -94,6 +125,8 @@ bot.telegram.setMyCommands([
   { command: 'favorites', description: '⭐ Your favorites' },
   { command: 'history', description: '🕘 Browsing history' },
   { command: 'stats', description: '📊 Statistics' },
+  { command: 'admin', description: '🔧 Admin panel' },
+  { command: 'status', description: '📡 Bot status' },
   { command: 'help', description: '❓ Get help' }
 ]);
 
@@ -116,14 +149,43 @@ bot.command('help', handleHelp);
 bot.command('testdb', handleTestCommand);
 
 // Admin commands
+bot.command('admin', handleAdminPanel);
 bot.command('broadcast', handleBroadcast);
 bot.command('analytics', handleAnalytics);
+
+// Status command
+bot.command('status', async (ctx) => {
+  const uptime = process.uptime();
+  const hours = Math.floor(uptime / 3600);
+  const mins = Math.floor((uptime % 3600) / 60);
+  
+  const User = require('./db/schemas/User');
+  const DownloadStat = require('./db/schemas/DownloadStat');
+  
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  
+  const usersToday = await DownloadStat.distinct('oduserId', { timestamp: { $gte: todayStart } });
+  const downloadsToday = await DownloadStat.countDocuments({ action: 'download', timestamp: { $gte: todayStart } });
+  
+  await ctx.reply(
+    `🔧 *Bot Status*\n\n` +
+    `✅ Status: Online\n` +
+    `🧠 AI Engine: ${isAIAvailable() ? 'Groq/Llama-3 ✅' : 'Not configured ❌'}\n` +
+    `⏱️ Uptime: ${hours}h ${mins}m\n` +
+    `👥 Users Today: ${usersToday.length}\n` +
+    `📥 Downloads Today: ${downloadsToday}\n` +
+    `🌍 Environment: ${process.env.NODE_ENV || 'development'}`,
+    { parse_mode: 'Markdown' }
+  );
+});
 
 // ================================
 // Keyboard Button Handlers
 // ================================
 
-bot.hears('📚 Browse', handleBrowseColleges);
+bot.hears('🏛️ Browse', handleBrowseColleges);
+bot.hears('📚 Browse', handleBrowseColleges); // Legacy support
 bot.hears('🔍 Search', handleGoSearch);
 bot.hears('⭐ Favorites', handleFavorites);
 bot.hears('🕘 History', handleHistory);
@@ -140,6 +202,7 @@ bot.action('go_history', async (ctx) => { await ctx.answerCbQuery(); await handl
 bot.action('browse_colleges', handleBrowseColleges);
 bot.action('show_all_depts', handleAllDepartments);
 bot.action('show_help', handleHelp);
+bot.action('go_stats', async (ctx) => { await ctx.answerCbQuery(); await handleStats(ctx); });
 bot.action('noop', (ctx) => ctx.answerCbQuery());
 bot.action('start_over', (ctx) => { ctx.answerCbQuery(); clearSession(ctx.chat.id); showHomeMenu(ctx); });
 
@@ -181,6 +244,44 @@ bot.action('analytics_refresh', handleAnalyticsRefresh);
 bot.action(/^notify_interest_/, handleNotifyInterest);
 
 // ================================
+// AI Study Tools Callbacks
+// ================================
+
+bot.action(/^ai_summary_long_/, handleAISummaryLong);
+bot.action(/^ai_summary_/, handleAISummary);
+bot.action(/^ai_flashcards_/, handleAIFlashcards);
+bot.action(/^fc_page_/, handleFlashcardPage);
+bot.action(/^ai_quiz_/, handleAIQuiz);
+bot.action(/^ai_mindmap_/, handleAIMindMap);
+
+// ================================
+// Admin Upload Callbacks
+// ================================
+
+bot.action('admin_panel', handleAdminPanelCallback);
+bot.action('admin_upload_start', handleUploadStart);
+bot.action('admin_add_course', handleAddCourseStart);
+bot.action('admin_manage_courses', handleManageCourses);
+bot.action('admin_list_courses', handleListCourses);
+bot.action('admin_cancel', handleAdminCancel);
+bot.action('admin_stats', async (ctx) => { await ctx.answerCbQuery(); await handleStats(ctx); });
+
+// Upload flow callbacks
+bot.action(/^upload_college_/, handleUploadCollegeSelect);
+bot.action(/^upload_dept_/, handleUploadDeptSelect);
+bot.action(/^upload_year_/, handleUploadYearSelect);
+bot.action(/^upload_sem_/, handleUploadSemSelect);
+bot.action(/^upload_course_/, handleUploadCourseSelect);
+bot.action(/^upload_type_/, handleUploadTypeSelect);
+bot.action('upload_new_course', handleUploadNewCourse);
+
+// Add course flow callbacks
+bot.action(/^addcourse_college_/, handleAddCourseCollegeSelect);
+bot.action(/^addcourse_dept_/, handleAddCourseDeptSelect);
+bot.action(/^addcourse_year_/, handleAddCourseYearSelect);
+bot.action(/^addcourse_sem_/, handleAddCourseSemSelect);
+
+// ================================
 // Search Callbacks
 // ================================
 
@@ -213,18 +314,34 @@ bot.action('back_colleges', handleBrowse);
 // Text Message Handler
 // ================================
 
-bot.on('text', (ctx) => {
+bot.on('text', async (ctx) => {
   const text = ctx.message.text;
   if (text.startsWith('/')) return;
   
-  const menuButtons = ['📚 Browse', '🔍 Search', '⭐ Favorites', '🕘 History', '❓ Help'];
+  const menuButtons = ['📚 Browse', '🔍 Search', '⭐ Favorites', '🕘 History', '❓ Help', '🏛️ Browse'];
   if (menuButtons.includes(text)) return;
+  
+  // Check if this is part of admin upload flow
+  const handled = await handleUploadTextInput(ctx);
+  if (handled) return;
   
   if (text.length >= 3) {
     ctx.reply(
       `💡 Did you mean to search?\n\nType: \`/search ${text}\``,
       { parse_mode: 'Markdown' }
     );
+  }
+});
+
+// ================================
+// Document Handler (File Uploads)
+// ================================
+
+bot.on('document', async (ctx) => {
+  // Check if this is part of admin upload flow
+  const handled = await handleFileUpload(ctx);
+  if (!handled) {
+    ctx.reply('📄 To upload a resource, use /admin and follow the upload flow.');
   }
 });
 

@@ -1,25 +1,35 @@
 /**
  * ================================
- * History Handler
+ * History Handler (Day 11 Enhanced)
  * ================================
  * 
- * Tracks and displays user browsing history.
+ * Tracks and displays user browsing history with polished UI.
  */
 
 const { Markup } = require('telegraf');
 const History = require('../db/schemas/History');
 const Resource = require('../db/schemas/Resource');
 const { getCommonButtons } = require('./menuHandler');
+const {
+  EMOJI,
+  EMPTY,
+  ERRORS,
+  SUCCESS,
+  NAV,
+  getTypeIcon,
+  showTyping,
+  safeEditMessage,
+  safeAnswerCallback
+} = require('../utils/branding');
 
 const ITEMS_PER_PAGE = 5;
-const MAX_HISTORY = 100; // Keep last 100 items per user
+const MAX_HISTORY = 100;
 
 /**
  * Record a history entry
  */
 async function recordHistory(oduserId, resourceId, action = 'view') {
   try {
-    // Add new entry
     await History.create({ oduserId, resourceId, action });
     
     // Clean old entries (keep only last MAX_HISTORY)
@@ -50,22 +60,35 @@ async function handleHistory(ctx) {
  */
 async function showHistory(ctx, page = 0) {
   try {
+    if (ctx.callbackQuery) await safeAnswerCallback(ctx);
+    
+    // Show typing indicator
+    await showTyping(ctx);
+    
     const oduserId = ctx.from.id.toString();
     
     // Count total history
     const total = await History.countDocuments({ oduserId });
     
     if (total === 0) {
-      const buttons = getCommonButtons();
-      return ctx.reply(
-        '🕘 *Your History*\n\n' +
-        '📭 Your history is empty.\n\n' +
-        '_Start browsing resources to see them here._',
-        {
+      const buttons = [
+        [Markup.button.callback(`${EMOJI.college} Browse Resources`, 'browse_colleges')],
+        [Markup.button.callback(NAV.search, 'go_search')],
+        [Markup.button.callback(NAV.home, 'go_home')]
+      ];
+      
+      const message = `${EMOJI.history} *Your History*\n\n${EMPTY.history}`;
+      
+      if (ctx.callbackQuery) {
+        return safeEditMessage(ctx, message, {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard(buttons)
-        }
-      );
+        });
+      }
+      return ctx.reply(message, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons)
+      });
     }
     
     // Fetch history with pagination
@@ -88,9 +111,10 @@ async function showHistory(ctx, page = 0) {
         const r = h.resourceId;
         const courseCode = r.courseId?.courseCode || '';
         const time = formatTime(h.timestamp);
+        const title = r.title.length > 22 ? r.title.substring(0, 22) + '...' : r.title;
         buttons.push([
           Markup.button.callback(
-            `📄 ${r.title.substring(0, 25)}... (${time})`,
+            `${getTypeIcon(r.type)} ${title} (${time})`,
             `resource_${r._id}`
           )
         ]);
@@ -115,18 +139,18 @@ async function showHistory(ctx, page = 0) {
     
     // Common navigation
     buttons.push([
-      Markup.button.callback('🏠 Home', 'go_home'),
-      Markup.button.callback('⭐ Favorites', 'go_favorites')
+      Markup.button.callback(NAV.home, 'go_home'),
+      Markup.button.callback(NAV.favorites, 'go_favorites')
     ]);
     
     const message = 
-      `🕘 *Your History*\n\n` +
-      `📚 ${total} item(s) in history\n` +
+      `${EMOJI.history} *Your History*\n\n` +
+      `${EMOJI.resource} ${total} item(s) in history\n` +
       `📄 Page ${page + 1} of ${totalPages}\n\n` +
       `_Showing your recent activity_`;
     
     if (ctx.callbackQuery) {
-      await ctx.editMessageText(message, {
+      await safeEditMessage(ctx, message, {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard(buttons)
       });
@@ -139,7 +163,7 @@ async function showHistory(ctx, page = 0) {
     
   } catch (error) {
     console.error('❌ History error:', error.message);
-    await ctx.reply('⚠️ Something went wrong. Please try again.');
+    await ctx.reply(ERRORS.general);
   }
 }
 
@@ -148,7 +172,7 @@ async function showHistory(ctx, page = 0) {
  */
 async function handleHistoryPage(ctx) {
   try {
-    await ctx.answerCbQuery();
+    await safeAnswerCallback(ctx);
     const page = parseInt(ctx.callbackQuery.data.replace('hist_page_', ''));
     await showHistory(ctx, page);
   } catch (error) {
@@ -161,14 +185,13 @@ async function handleHistoryPage(ctx) {
  */
 async function clearHistory(ctx) {
   try {
-    await ctx.answerCbQuery();
+    await safeAnswerCallback(ctx);
     
     const oduserId = ctx.from.id.toString();
     await History.deleteMany({ oduserId });
     
-    await ctx.editMessageText(
-      '🕘 *Your History*\n\n' +
-      '✅ History cleared successfully!',
+    await safeEditMessage(ctx,
+      `${EMOJI.history} *Your History*\n\n${SUCCESS.historyCleared}`,
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard(getCommonButtons())

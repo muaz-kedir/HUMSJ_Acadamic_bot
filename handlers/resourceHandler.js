@@ -1,11 +1,10 @@
 /**
  * ================================
- * Resource Handler (Day 7 Enhanced)
+ * Resource Handler (Day 11 Enhanced)
  * ================================
  * 
- * Handles chapter selection and resource file delivery.
- * Supports both local files and URL-based files.
- * Includes improved navigation and error handling.
+ * Handles chapter selection and resource delivery.
+ * Polished UI with loading states and improved navigation.
  */
 
 const { Markup } = require('telegraf');
@@ -14,22 +13,29 @@ const fs = require('fs');
 const Resource = require('../db/schemas/Resource');
 const { updateSession, getSession, getNavigationPath } = require('../utils/sessionManager');
 const { recordHistory } = require('./historyHandler');
-
-// Type icons for display
-const TYPE_ICONS = {
-  pdf: '📄',
-  slide: '📊',
-  book: '📖',
-  exam: '📝'
-};
+const {
+  EMOJI,
+  HEADERS,
+  EMPTY,
+  ERRORS,
+  SUCCESS,
+  NAV,
+  formatBreadcrumb,
+  getTypeIcon,
+  showTyping,
+  safeEditMessage,
+  safeAnswerCallback
+} = require('../utils/branding');
 
 /**
  * Handle chapter selection - Show resources
- * @param {Object} ctx - Telegraf context
  */
 async function handleChapterSelect(ctx) {
   try {
-    await ctx.answerCbQuery();
+    await safeAnswerCallback(ctx, EMOJI.loading);
+    
+    // Show typing indicator
+    await showTyping(ctx);
     
     // Extract chapter from callback data
     const chapter = decodeURIComponent(ctx.callbackQuery.data.replace('chapter_', ''));
@@ -38,7 +44,7 @@ async function handleChapterSelect(ctx) {
     const session = getSession(ctx.chat.id);
     
     if (!session.courseId) {
-      return ctx.reply('❌ Session expired. Please use /browse to start again.');
+      return ctx.reply(ERRORS.sessionExpired);
     }
     
     // Update session with chapter
@@ -56,71 +62,63 @@ async function handleChapterSelect(ctx) {
     // Check if resources exist
     if (!resources || resources.length === 0) {
       const buttons = [
-        [Markup.button.callback('🔔 Notify me when available', `notify_interest_chapter_${encodeURIComponent(chapter)}`)],
-        [Markup.button.callback('⬅️ Back to Chapters', `course_${session.courseId}`)],
-        [Markup.button.callback('⬅️ Back to Courses', `semester_${session.semester}`)],
-        [Markup.button.callback('🏠 Home', 'go_home')]
+        [Markup.button.callback(`${EMOJI.notify} Notify me when available`, `notify_interest_chapter_${encodeURIComponent(chapter)}`)],
+        [Markup.button.callback(NAV.backTo('Chapters'), `course_${session.courseId}`)],
+        [Markup.button.callback(NAV.backTo('Courses'), `semester_${session.semester}`)],
+        [Markup.button.callback(NAV.home, 'go_home')]
       ];
       
-      return ctx.editMessageText(
-        `📑 *${chapter}*\n` +
-        `📍 ${navPath}\n\n` +
-        '📭 *No resources available yet*\n\n' +
-        'We are updating the library every day.\n' +
-        'Please check back soon!\n\n' +
-        '_Tap the button below to get notified when content is added._',
-        {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard(buttons)
-        }
+      return safeEditMessage(ctx,
+        `${EMOJI.chapter} *${chapter}*\n\n` +
+        `${formatBreadcrumb(navPath)}\n\n` +
+        `${EMPTY.resources}`,
+        { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }
       );
     }
     
     // Build resource buttons
     const buttons = resources.map(resource => [
       Markup.button.callback(
-        `${TYPE_ICONS[resource.type] || '📁'} ${resource.title}`,
+        `${getTypeIcon(resource.type)} ${resource.title}`,
         `resource_${resource._id}`
       )
     ]);
     
     // Add navigation buttons
+    buttons.push([Markup.button.callback(NAV.backTo('Chapters'), `course_${session.courseId}`)]);
     buttons.push([
-      Markup.button.callback('⬅️ Back to Chapters', `course_${session.courseId}`)
-    ]);
-    buttons.push([
-      Markup.button.callback('⬅️ Back to Courses', `semester_${session.semester}`)
+      Markup.button.callback(NAV.home, 'go_home'),
+      Markup.button.callback(NAV.favorites, 'go_favorites')
     ]);
     
+    const message = `${HEADERS.selectResource(chapter, resources.length)}\n\n` +
+      `${EMOJI.course} Course: ${session.courseCode} – ${session.courseName}\n` +
+      `${formatBreadcrumb(navPath)}\n\n` +
+      `Select a file to download:`;
+    
     // Edit message with resources
-    await ctx.editMessageText(
-      `📑 *${chapter}*\n` +
-      `📘 Course: ${session.courseCode} – ${session.courseName}\n` +
-      `📍 ${navPath}\n\n` +
-      `📚 Found ${resources.length} resource(s):\n` +
-      'Select a file to download:',
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard(buttons)
-      }
-    );
+    await safeEditMessage(ctx, message, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(buttons)
+    });
     
     console.log(`👤 User viewing resources for: ${chapter}`);
     
   } catch (error) {
     console.error('❌ Resource list error:', error.message);
-    await ctx.answerCbQuery('⚠️ Something went wrong');
-    await ctx.reply('⚠️ Something went wrong. Please try again later.');
+    await ctx.reply(ERRORS.general);
   }
 }
 
 /**
  * Handle resource selection - Deliver file
- * @param {Object} ctx - Telegraf context
  */
 async function handleResourceSelect(ctx) {
   try {
-    await ctx.answerCbQuery('📥 Preparing your file...');
+    await safeAnswerCallback(ctx, SUCCESS.downloadStarted);
+    
+    // Show typing indicator
+    await showTyping(ctx);
     
     // Extract resource ID
     const resourceId = ctx.callbackQuery.data.replace('resource_', '');
@@ -128,7 +126,7 @@ async function handleResourceSelect(ctx) {
     // Fetch resource details with course info
     const resource = await Resource.findById(resourceId).populate('courseId');
     if (!resource) {
-      return ctx.reply('❌ Resource not found. Please try again.');
+      return ctx.reply(ERRORS.notFound);
     }
     
     // Get session for navigation
@@ -141,10 +139,10 @@ async function handleResourceSelect(ctx) {
     
     // Prepare info message
     const infoMessage = 
-      `${TYPE_ICONS[resource.type] || '📁'} *${resource.title}*\n\n` +
-      `📘 Course: ${courseCode} – ${courseName}\n` +
-      `📑 Chapter: ${resource.chapter}\n` +
-      `📍 ${navPath}`;
+      `${getTypeIcon(resource.type)} *${resource.title}*\n\n` +
+      `${EMOJI.course} Course: ${courseCode} – ${courseName}\n` +
+      `${EMOJI.chapter} Chapter: ${resource.chapter}\n` +
+      `${formatBreadcrumb(navPath)}`;
     
     // Try to send the file
     let fileSent = false;
@@ -152,15 +150,18 @@ async function handleResourceSelect(ctx) {
     // Method 1: Check for URL-based file
     if (resource.fileUrl && resource.fileUrl.startsWith('http')) {
       try {
-        await ctx.reply(`${infoMessage}\n\n📥 Downloading file...`, { parse_mode: 'Markdown' });
+        await ctx.reply(`${infoMessage}\n\n${EMOJI.download} Downloading file...`, { parse_mode: 'Markdown' });
         
-        // Send document from URL
         await ctx.replyWithDocument(
           { url: resource.fileUrl, filename: `${resource.title}.pdf` },
           {
-            caption: `📚 ${resource.title}\n📑 ${resource.chapter}`,
+            caption: `${EMOJI.resource} ${resource.title}\n${EMOJI.chapter} ${resource.chapter}`,
             ...Markup.inlineKeyboard([
-              [Markup.button.callback('⬅️ Back to Resources', `chapter_${encodeURIComponent(resource.chapter)}`)]
+              [Markup.button.callback(NAV.backTo('Resources'), `chapter_${encodeURIComponent(resource.chapter)}`)],
+              [
+                Markup.button.callback(`${EMOJI.favorites} Add to Favorites`, `fav_add_${resource._id}`),
+                Markup.button.callback(NAV.home, 'go_home')
+              ]
             ])
           }
         );
@@ -184,22 +185,27 @@ async function handleResourceSelect(ctx) {
       
       if (fs.existsSync(filePath)) {
         try {
-          await ctx.reply(`${infoMessage}\n\n📥 Sending file...`, { parse_mode: 'Markdown' });
+          await ctx.reply(`${infoMessage}\n\n${EMOJI.download} Sending file...`, { parse_mode: 'Markdown' });
           
           await ctx.replyWithDocument(
             { source: filePath },
             {
-              caption: `📚 ${resource.title}\n📑 ${resource.chapter}`,
+              caption: `${EMOJI.resource} ${resource.title}\n${EMOJI.chapter} ${resource.chapter}`,
               ...Markup.inlineKeyboard([
-                [Markup.button.callback('⬅️ Back to Resources', `chapter_${encodeURIComponent(resource.chapter)}`)]
+                [Markup.button.callback(NAV.backTo('Resources'), `chapter_${encodeURIComponent(resource.chapter)}`)],
+                [
+                  Markup.button.callback(`${EMOJI.favorites} Add to Favorites`, `fav_add_${resource._id}`),
+                  Markup.button.callback(NAV.home, 'go_home')
+                ]
               ])
             }
           );
           
           fileSent = true;
           
-          // Increment download count
+          // Increment download count and record history
           await Resource.findByIdAndUpdate(resourceId, { $inc: { downloads: 1 } });
+          await recordHistory(ctx.from.id.toString(), resourceId, 'download');
           
           console.log(`📤 Local file sent: ${resource.title} to ${ctx.from.username || ctx.from.id}`);
           
@@ -212,31 +218,24 @@ async function handleResourceSelect(ctx) {
     // If no file was sent, show error
     if (!fileSent) {
       const buttons = [
-        [Markup.button.callback('🔔 Notify when fixed', `notify_interest_resource_${resourceId}`)],
-        [Markup.button.callback('⬅️ Back to Resources', `chapter_${encodeURIComponent(resource.chapter)}`)],
-        [Markup.button.callback('⬅️ Back to Chapters', `course_${session.courseId}`)],
-        [Markup.button.callback('🏠 Home', 'go_home')]
+        [Markup.button.callback(`${EMOJI.notify} Notify when fixed`, `notify_interest_resource_${resourceId}`)],
+        [Markup.button.callback(NAV.backTo('Resources'), `chapter_${encodeURIComponent(resource.chapter)}`)],
+        [Markup.button.callback(NAV.backTo('Chapters'), `course_${session.courseId}`)],
+        [Markup.button.callback(NAV.home, 'go_home')]
       ];
       
-      await ctx.editMessageText(
+      await safeEditMessage(ctx,
         `${infoMessage}\n\n` +
-        '❌ *This resource is temporarily unavailable*\n\n' +
-        'The library team has been notified.\n' +
-        '_Please try again later or choose another resource._',
-        {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard(buttons)
-        }
+        `${EMOJI.warning} *This resource is temporarily unavailable*\n\n` +
+        `The library team has been notified.\n` +
+        `_Please try again later or choose another resource._`,
+        { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }
       );
     }
     
   } catch (error) {
     console.error('❌ Resource delivery error:', error.message);
-    await ctx.reply(
-      '⚠️ Something went wrong. Please try again later.\n\n' +
-      '_If this problem persists, please contact admin._',
-      { parse_mode: 'Markdown' }
-    );
+    await ctx.reply(ERRORS.general + ERRORS.tryAgain, { parse_mode: 'Markdown' });
   }
 }
 

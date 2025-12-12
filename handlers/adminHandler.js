@@ -1,9 +1,9 @@
 /**
  * ================================
- * Admin Handler (Day 10)
+ * Admin Handler (Day 11 Enhanced)
  * ================================
  * 
- * Admin commands: broadcast, analytics, backup.
+ * Admin commands with polished UI.
  */
 
 const { Markup } = require('telegraf');
@@ -15,8 +15,15 @@ const Department = require('../db/schemas/Department');
 const College = require('../db/schemas/College');
 const History = require('../db/schemas/History');
 const { log } = require('../utils/logger');
+const {
+  EMOJI,
+  BRAND,
+  ERRORS,
+  NAV,
+  showTyping,
+  safeAnswerCallback
+} = require('../utils/branding');
 
-// Admin IDs from environment
 const ADMIN_IDS = process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',').map(id => id.trim()) : [];
 
 /**
@@ -28,40 +35,37 @@ function isAdmin(userId) {
 
 /**
  * Handle /broadcast command
- * Usage: /broadcast Your message here
  */
 async function handleBroadcast(ctx) {
   try {
     const userId = ctx.from.id.toString();
     
     if (!isAdmin(userId)) {
-      return ctx.reply('⛔ Admin access required.');
+      return ctx.reply(`${EMOJI.error} Admin access required.`);
     }
     
     const message = ctx.message.text.replace('/broadcast', '').trim();
     
     if (!message) {
       return ctx.reply(
-        '📢 *Broadcast Usage:*\n\n' +
-        '`/broadcast Your message here`\n\n' +
-        'This will send the message to all registered users.',
+        `📢 *Broadcast Usage:*\n\n` +
+        `\`/broadcast Your message here\`\n\n` +
+        `This will send the message to all registered users.`,
         { parse_mode: 'Markdown' }
       );
     }
     
-    await ctx.reply('📤 Starting broadcast...');
+    await ctx.reply(`${EMOJI.loading} Starting broadcast...`);
     
-    // Get all users
     const users = await User.find({}, 'telegramId');
     let sent = 0;
     let failed = 0;
     
     const broadcastMessage = 
-      `📢 *Announcement from HUMSJ Library*\n\n` +
+      `📢 *Announcement from ${BRAND.name}*\n\n` +
       `${message}\n\n` +
-      `_— HUMSJ Academic Library Bot_`;
+      `_— ${BRAND.shortName} Bot_`;
     
-    // Send with rate limiting (10 per second to avoid Telegram limits)
     for (const user of users) {
       try {
         await ctx.telegram.sendMessage(user.telegramId, broadcastMessage, {
@@ -69,7 +73,6 @@ async function handleBroadcast(ctx) {
         });
         sent++;
         
-        // Rate limit: 10 messages per second
         if (sent % 10 === 0) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
@@ -80,9 +83,9 @@ async function handleBroadcast(ctx) {
     }
     
     await ctx.reply(
-      `✅ *Broadcast Complete*\n\n` +
+      `${EMOJI.success} *Broadcast Complete*\n\n` +
       `📤 Sent: ${sent}\n` +
-      `❌ Failed: ${failed}\n` +
+      `${EMOJI.error} Failed: ${failed}\n` +
       `👥 Total: ${users.length}`,
       { parse_mode: 'Markdown' }
     );
@@ -91,7 +94,7 @@ async function handleBroadcast(ctx) {
     
   } catch (error) {
     log.error('Broadcast error', { error: error.message });
-    await ctx.reply('⚠️ Broadcast failed. Please try again.');
+    await ctx.reply(ERRORS.general);
   }
 }
 
@@ -103,32 +106,32 @@ async function handleAnalytics(ctx) {
     const userId = ctx.from.id.toString();
     
     if (!isAdmin(userId)) {
-      return ctx.reply('⛔ Admin access required.');
+      return ctx.reply(`${EMOJI.error} Admin access required.`);
     }
     
-    await ctx.reply('📊 Loading analytics...');
+    await showTyping(ctx);
     
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     
-    // 1. Active users today
+    // Active users today
     const activeToday = await DownloadStat.distinct('oduserId', {
       timestamp: { $gte: todayStart }
     });
     
-    // 2. Resources accessed today
+    // Resources accessed today
     const resourcesToday = await DownloadStat.distinct('resourceId', {
       timestamp: { $gte: todayStart }
     });
     
-    // 3. Total downloads
+    // Total downloads
     const totalDownloads = await DownloadStat.countDocuments({ action: 'download' });
     const todayDownloads = await DownloadStat.countDocuments({
       action: 'download',
       timestamp: { $gte: todayStart }
     });
     
-    // 4. Most used college
+    // Most used college
     const collegeStats = await History.aggregate([
       { $match: { timestamp: { $gte: todayStart } } },
       { $group: { _id: '$collegeId', count: { $sum: 1 } } },
@@ -142,7 +145,7 @@ async function handleAnalytics(ctx) {
       topCollege = college ? college.name : 'N/A';
     }
     
-    // 5. Most used department
+    // Most used department
     const deptStats = await History.aggregate([
       { $match: { timestamp: { $gte: todayStart } } },
       { $group: { _id: '$departmentId', count: { $sum: 1 } } },
@@ -156,7 +159,7 @@ async function handleAnalytics(ctx) {
       topDept = dept ? dept.name : 'N/A';
     }
     
-    // 6. Most used course
+    // Most used course
     const courseStats = await DownloadStat.aggregate([
       { $match: { timestamp: { $gte: todayStart } } },
       { $lookup: { from: 'resources', localField: 'resourceId', foreignField: '_id', as: 'resource' } },
@@ -172,7 +175,7 @@ async function handleAnalytics(ctx) {
       topCourse = course ? `${course.courseCode} - ${course.name}` : 'N/A';
     }
     
-    // 7. Peak usage hours
+    // Peak usage hours
     const hourlyStats = await DownloadStat.aggregate([
       { $match: { timestamp: { $gte: todayStart } } },
       { $group: { _id: { $hour: '$timestamp' }, count: { $sum: 1 } } },
@@ -182,22 +185,22 @@ async function handleAnalytics(ctx) {
     
     const peakHours = hourlyStats.map(h => `${h._id}:00`).join(', ') || 'N/A';
     
-    // 8. Total registered users
+    // Total registered users
     const totalUsers = await User.countDocuments();
     
     const message = 
-      `📊 *HUMSJ Analytics Dashboard*\n` +
+      `${EMOJI.stats} *${BRAND.shortName} Analytics*\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n\n` +
       
       `👥 *Users*\n` +
       `├ Active today: ${activeToday.length}\n` +
       `└ Total registered: ${totalUsers}\n\n` +
       
-      `📥 *Downloads*\n` +
+      `${EMOJI.download} *Downloads*\n` +
       `├ Today: ${todayDownloads}\n` +
       `└ All time: ${totalDownloads}\n\n` +
       
-      `📚 *Resources*\n` +
+      `${EMOJI.resource} *Resources*\n` +
       `└ Accessed today: ${resourcesToday.length}\n\n` +
       
       `🏆 *Top Today*\n` +
@@ -214,13 +217,13 @@ async function handleAnalytics(ctx) {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🔄 Refresh', 'analytics_refresh')],
-        [Markup.button.callback('🏠 Home', 'go_home')]
+        [Markup.button.callback(NAV.home, 'go_home')]
       ])
     });
     
   } catch (error) {
     log.error('Analytics error', { error: error.message });
-    await ctx.reply('⚠️ Failed to load analytics.');
+    await ctx.reply(ERRORS.general);
   }
 }
 
@@ -229,7 +232,7 @@ async function handleAnalytics(ctx) {
  */
 async function handleAnalyticsRefresh(ctx) {
   try {
-    await ctx.answerCbQuery('🔄 Refreshing...');
+    await safeAnswerCallback(ctx, '🔄 Refreshing...');
     await handleAnalytics(ctx);
   } catch (error) {
     log.error('Analytics refresh error', { error: error.message });

@@ -1,14 +1,20 @@
 /**
  * ================================
- * Interest Handler (Day 10)
+ * Interest Handler (Day 11 Enhanced)
  * ================================
  * 
- * Handles "Notify me when available" feature.
+ * Handles "Notify me when available" with polished UI.
  */
 
 const { Markup } = require('telegraf');
 const Interest = require('../db/schemas/Interest');
 const { log } = require('../utils/logger');
+const {
+  EMOJI,
+  ERRORS,
+  NAV,
+  safeAnswerCallback
+} = require('../utils/branding');
 
 /**
  * Handle notify interest callback
@@ -16,7 +22,7 @@ const { log } = require('../utils/logger');
  */
 async function handleNotifyInterest(ctx) {
   try {
-    await ctx.answerCbQuery();
+    await safeAnswerCallback(ctx);
     
     const data = ctx.callbackQuery.data.replace('notify_interest_', '');
     const [type, id] = data.split('_');
@@ -32,8 +38,8 @@ async function handleNotifyInterest(ctx) {
     
     if (existing) {
       return ctx.reply(
-        '✅ You\'re already on the notification list!\n\n' +
-        '_We\'ll notify you when new content is available._',
+        `${EMOJI.success} You're already on the notification list!\n\n` +
+        `_We'll notify you when new content is available._`,
         { parse_mode: 'Markdown' }
       );
     }
@@ -47,13 +53,14 @@ async function handleNotifyInterest(ctx) {
     });
     
     await ctx.reply(
-      '🔔 *Notification Set!*\n\n' +
-      'We\'ll notify you when new resources are added.\n\n' +
-      '_Thank you for your interest!_',
+      `${EMOJI.notify} *Notification Set!*\n\n` +
+      `We'll notify you when new resources are added.\n\n` +
+      `_Thank you for your interest!_`,
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🏠 Home', 'go_home')]
+          [Markup.button.callback(NAV.home, 'go_home')],
+          [Markup.button.callback(`${EMOJI.college} Continue Browsing`, 'browse_colleges')]
         ])
       }
     );
@@ -62,13 +69,12 @@ async function handleNotifyInterest(ctx) {
     
   } catch (error) {
     log.error('Interest handler error', { error: error.message });
-    await ctx.reply('⚠️ Failed to register interest. Please try again.');
+    await ctx.reply(ERRORS.general);
   }
 }
 
 /**
  * Notify interested users when content is added
- * Called when admin adds new resources
  */
 async function notifyInterestedUsers(bot, courseId, chapter) {
   try {
@@ -82,9 +88,9 @@ async function notifyInterestedUsers(bot, courseId, chapter) {
     if (interests.length === 0) return;
     
     const message = 
-      '🎉 *New Content Available!*\n\n' +
-      'Resources you were waiting for have been added.\n\n' +
-      'Use /browse to check them out!';
+      `🎉 *New Content Available!*\n\n` +
+      `Resources you were waiting for have been added.\n\n` +
+      `Use /browse to check them out!`;
     
     let notified = 0;
     
